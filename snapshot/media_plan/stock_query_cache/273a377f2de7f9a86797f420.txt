@@ -1,0 +1,236 @@
+[
+  {
+    "n": 1,
+    "focus": "knights in armour living in armour",
+    "subject": "a knight",
+    "core": "a manuscript miniature of knights in armour is visible",
+    "claims": [
+      {"id": "c1", "text": "the knights wear full plate armour", "tier": "must"},
+      {"id": "c2", "text": "the scene is a medieval manuscript illumination", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "knights armour manuscript miniature", "for": ["core", "c1", "c2"], "type": "illustration"},
+      {"q": "medieval knights in armour", "for": ["core", "c1"], "type": "illustration"},
+      {"q": "armoured knights fighting", "for": ["core", "c1"], "type": "scene"}
+    ]
+  },
+  {
+    "n": 2,
+    "focus": "Jean le Meingre Boucicaut marshal of France",
+    "subject": "a knight",
+    "core": "a portrait of a knight in armour is visible",
+    "claims": [
+      {"id": "c1", "text": "the knight is depicted as a marshal", "tier": "should"},
+      {"id": "c2", "text": "the image is from a medieval manuscript", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "Boucicaut knight portrait", "for": ["core", "c1"], "type": "illustration"},
+      {"q": "medieval knight portrait manuscript", "for": ["core", "c2"], "type": "illustration"},
+      {"q": "marshal of France medieval", "for": ["core", "c1"], "type": "illustration"}
+    ]
+  },
+  {
+    "n": 3,
+    "focus": "his biography written around 1409",
+    "subject": "a manuscript",
+    "core": "an open medieval manuscript is visible",
+    "claims": [
+      {"id": "c1", "text": "the manuscript has handwritten text", "tier": "must"},
+      {"id": "c2", "text": "the manuscript is old and medieval", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "medieval manuscript open", "for": ["core", "c1", "c2"], "type": "object"},
+      {"q": "old handwritten book", "for": ["core", "c1"], "type": "object"},
+      {"q": "illuminated manuscript page", "for": ["core", "c2"], "type": "object"}
+    ]
+  },
+  {
+    "n": 4,
+    "focus": "he ran and walked to train breathing",
+    "subject": "a knight",
+    "core": "a knight running in armour is visible",
+    "claims": [
+      {"id": "c1", "text": "the knight is in full armour", "tier": "must"},
+      {"id": "c2", "text": "the knight is running or walking", "tier": "must", "motion": true}
+    ],
+    "queries": [
+      {"q": "knight running armour", "for": ["core", "c1", "c2"], "type": "scene"},
+      {"q": "armoured knight walking", "for": ["core", "c1", "c2"], "type": "scene"},
+      {"q": "medieval knight training", "for": ["core", "c1"], "type": "scene"}
+    ]
+  },
+  {
+    "n": 5,
+    "focus": "he vaulted onto a horse without stirrup",
+    "subject": "a knight",
+    "core": "a knight vaulting onto a horse is visible",
+    "claims": [
+      {"id": "c1", "text": "the knight is in full armour", "tier": "must"},
+      {"id": "c2", "text": "the knight mounts the horse without using a stirrup", "tier": "must", "motion": true},
+      {"id": "c3", "text": "a horse is visible", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "knight vaulting horse", "for": ["core", "c1", "c2", "c3"], "type": "scene"},
+      {"q": "armoured knight mounting horse", "for": ["core", "c1", "c2", "c3"], "type": "scene"},
+      {"q": "medieval knight horse jump", "for": ["core", "c1", "c2", "c3"], "type": "scene"}
+    ]
+  },
+  {
+    "n": 6,
+    "focus": "he climbed a ladder with only his arms",
+    "subject": "a ladder",
+    "core": "a knight climbing a ladder with his arms is visible",
+    "claims": [
+      {"id": "c1", "text": "the knight is in armour", "tier": "must"},
+      {"id": "c2", "text": "the ladder is against a wall", "tier": "must"},
+      {"id": "c3", "text": "the knight uses only his arms to climb", "tier": "must", "motion": true}
+    ],
+    "queries": [
+      {"q": "knight climbing ladder", "for": ["core", "c1", "c2", "c3"], "type": "scene"},
+      {"q": "armoured man ladder wall", "for": ["core", "c1", "c2"], "type": "scene"},
+      {"q": "medieval siege ladder", "for": ["core", "c2"], "type": "object"}
+    ]
+  },
+  {
+    "n": 7,
+    "focus": "he made a jump in armour without helmet",
+    "subject": "a knight",
+    "core": "a knight leaping in armour without a helmet is visible",
+    "claims": [
+      {"id": "c1", "text": "the knight is in full armour", "tier": "must"},
+      {"id": "c2", "text": "the knight has no helmet", "tier": "must"},
+      {"id": "c3", "text": "the knight is jumping", "tier": "must", "motion": true}
+    ],
+    "queries": [
+      {"q": "knight jumping armour", "for": ["core", "c1", "c2", "c3"], "type": "scene"},
+      {"q": "armoured man leaping", "for": ["core", "c1", "c2", "c3"], "type": "scene"},
+      {"q": "medieval knight no helmet", "for": ["core", "c1", "c2"], "type": "scene"}
+    ]
+  },
+  {
+    "n": 8,
+    "focus": "the word salto means just a jump not a somersault",
+    "subject": "a knight",
+    "core": "a knight jumping is visible",
+    "claims": [
+      {"id": "c1", "text": "the knight is in armour", "tier": "must"},
+      {"id": "c2", "text": "the knight is not doing a somersault", "tier": "must", "motion": true}
+    ],
+    "queries": [
+      {"q": "knight jumping", "for": ["core", "c1", "c2"], "type": "scene"},
+      {"q": "armoured man jump", "for": ["core", "c1", "c2"], "type": "scene"},
+      {"q": "medieval knight leap", "for": ["core", "c1", "c2"], "type": "scene"}
+    ]
+  },
+  {
+    "n": 9,
+    "focus": "this is a praise book not a test protocol",
+    "subject": "a manuscript",
+    "core": "an open medieval manuscript on a wooden table is visible",
+    "claims": [
+      {"id": "c1", "text": "the manuscript is open", "tier": "must"},
+      {"id": "c2", "text": "the table is wooden", "tier": "should"},
+      {"id": "c3", "text": "the manuscript is old and handwritten", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "open manuscript wooden table", "for": ["core", "c1", "c2", "c3"], "type": "object"},
+      {"q": "medieval book on table", "for": ["core", "c1", "c2", "c3"], "type": "object"},
+      {"q": "old manuscript page", "for": ["core", "c1", "c3"], "type": "object"}
+    ]
+  },
+  {
+    "n": 10,
+    "focus": "endurance and jumping in armour were normal training",
+    "subject": "a knight",
+    "core": "a knight training in armour is visible",
+    "claims": [
+      {"id": "c1", "text": "the knight is in full armour", "tier": "must"},
+      {"id": "c2", "text": "the knight is exercising or training", "tier": "must", "motion": true}
+    ],
+    "queries": [
+      {"q": "knight training armour", "for": ["core", "c1", "c2"], "type": "scene"},
+      {"q": "armoured knight exercise", "for": ["core", "c1", "c2"], "type": "scene"},
+      {"q": "medieval knight workout", "for": ["core", "c1", "c2"], "type": "scene"}
+    ]
+  },
+  {
+    "n": 11,
+    "focus": "half of armoured foot combat techniques are throws",
+    "subject": "a fight book",
+    "core": "a fight book page showing armoured wrestlers is visible",
+    "claims": [
+      {"id": "c1", "text": "the fighters are in armour", "tier": "must"},
+      {"id": "c2", "text": "the fighters are wrestling or throwing", "tier": "must", "motion": true},
+      {"id": "c3", "text": "the page is from a medieval fight book", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "fight book armoured wrestling", "for": ["core", "c1", "c2", "c3"], "type": "illustration"},
+      {"q": "medieval wrestling armour", "for": ["core", "c1", "c2"], "type": "illustration"},
+      {"q": "armoured fighters ground", "for": ["core", "c1", "c2"], "type": "illustration"}
+    ]
+  },
+  {
+    "n": 12,
+    "focus": "treatises have sections on fighting lying down and getting up",
+    "subject": "a fight book",
+    "core": "a fight book page showing a fighter on the ground is visible",
+    "claims": [
+      {"id": "c1", "text": "the fighter is in armour", "tier": "must"},
+      {"id": "c2", "text": "the fighter is lying on the ground", "tier": "must"},
+      {"id": "c3", "text": "the page is from a medieval treatise", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "fight book lying ground", "for": ["core", "c1", "c2", "c3"], "type": "illustration"},
+      {"q": "armoured fighter on ground", "for": ["core", "c1", "c2"], "type": "illustration"},
+      {"q": "medieval treatise wrestling", "for": ["core", "c1", "c2", "c3"], "type": "illustration"}
+    ]
+  },
+  {
+    "n": 13,
+    "focus": "tournament fights stopped when disarmed or thrown",
+    "subject": "a tournament",
+    "core": "a tournament scene with a fallen knight is visible",
+    "claims": [
+      {"id": "c1", "text": "a knight is on the ground", "tier": "must"},
+      {"id": "c2", "text": "the knight is in armour", "tier": "must"},
+      {"id": "c3", "text": "the scene is a tournament", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "tournament knight fallen", "for": ["core", "c1", "c2", "c3"], "type": "scene"},
+      {"q": "medieval tournament fight", "for": ["core", "c1", "c2", "c3"], "type": "scene"},
+      {"q": "knight knocked down", "for": ["core", "c1", "c2"], "type": "scene"}
+    ]
+  },
+  {
+    "n": 14,
+    "focus": "authors advise conserving movements to save strength and protect weak spots",
+    "subject": "a fight book",
+    "core": "a fight book page with a knight in a defensive stance is visible",
+    "claims": [
+      {"id": "c1", "text": "the knight is in armour", "tier": "must"},
+      {"id": "c2", "text": "the knight is in a guarded or defensive pose", "tier": "must"},
+      {"id": "c3", "text": "the page is from a medieval fight book", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "fight book defensive stance", "for": ["core", "c1", "c2", "c3"], "type": "illustration"},
+      {"q": "armoured knight guard", "for": ["core", "c1", "c2"], "type": "illustration"},
+      {"q": "medieval fencing treatise", "for": ["core", "c1", "c2", "c3"], "type": "illustration"}
+    ]
+  },
+  {
+    "n": 15,
+    "focus": "chronicle of the Combat of Thirty in 1351",
+    "subject": "a chronicle",
+    "core": "a manuscript illumination of the Combat of Thirty is visible",
+    "claims": [
+      {"id": "c1", "text": "the scene shows a group of knights fighting", "tier": "must"},
+      {"id": "c2", "text": "the image is from a medieval chronicle", "tier": "must"},
+      {"id": "c3", "text": "the knights are in armour", "tier": "must"}
+    ],
+    "queries": [
+      {"q": "Combat of Thirty illustration", "for": ["core", "c1", "c2", "c3"], "type": "illustration"},
+      {"q": "combat of thirty knights", "for": ["core", "c1", "c3"], "type": "illustration"},
+      {"q": "medieval chronicle battle", "for": ["core", "c1", "c2"], "type": "illustration"}
+    ]
+  }
+]

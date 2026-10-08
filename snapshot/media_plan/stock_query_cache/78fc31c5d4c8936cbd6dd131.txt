@@ -1,0 +1,186 @@
+The user wants me to act as a director of visuals for a documentary video. I need to output JSON objects for each narration line. Let me analyze each line carefully.
+
+The episode is about: «Сколько на самом деле мог драться рыцарь в доспехах? (что измерили учёные)» — "How long could a knight actually fight in armor? (what scientists measured)". Setting: historical, 1300-1550 AD, Western European, English, Italian (Milanese), German (Gothic), French, Burgundian.
+
+The previous chapter ended with: «Так что три часа это цифра про битву. А цифры про человека у нас нет.» ("So three hours is a figure about the battle. But we don't have a figure about the individual person.")
+
+Lines:
+
+1. «Так сколько же мог драться рыцарь в доспехе?» — shot: an empty plate armour harness standing alone in a museum hall
+   - The line asks: "So how long could a knight fight in armor?"
+   - The shot is specified: an empty plate armor harness standing alone in a museum hall.
+   - focus: the new thing this line says — the question about the knight's fighting duration in armor. The core: an empty plate armour harness standing alone in a museum hall.
+   - subject: the thing the line is about — the knight (or the armor). The line asks about the knight in armor. The named shot is the empty armor harness. So the subject is "a knight" or "plate armour". Since the core must be the armor harness, and the subject is what the line is about. The line is about a knight fighting in armor. Given the shot, the subject could be "a plate armour". Hmm. Let me think: "subject — the thing the line is ABOUT". The line is about a knight in armor fighting. The picture shows an empty armor harness. The subject should be "a knight" (the thing that must be in the picture for the picture to be about this line at all). But the picture shows armor, not a knight. Hmm.
+   
+   Actually, for line 1, the shot is given: empty plate armour harness standing alone in a museum hall. The line is about how long a knight could fight. The empty armor symbolizes the knight — the armor stands in for the knight. The subject: "a knight" or "an armour". Let me consider. The subject is "the thing that must be in the picture for the picture to be about this line at all". If we show an empty armor harness, does the picture become about the line "how long could a knight fight"? Yes — the armor represents the knight. So the subject could be "plate armour". But the line is about a knight. Hmm. I think the subject should be what's visible — the armor harness. Actually, the instructions say the subject is the thing the line is ABOUT, not necessarily what's visible. For a line about a knight, "a knight" would be the subject. But the shot shows armor — the armor is a metonymy for the knight. 
+
+   The core = "an empty plate armour harness standing alone in a museum hall" is visible.
+   The subject — bare noun phrase 1-4 words. I could say "a knight" — the thing the line is about. Or "a plate armour". Given the shot is armor, and the line asks about the knight, I think "a knight" is the subject, and the claims say the knight is represented by an empty armor harness (must), in a museum hall (should). Hmm, but the claim "the knight is shown as an empty armour harness" — checkable by looking. Yes.
+
+   Actually, let me reconsider. The example: "The ball bounced off the wall and rolled away" — core is the ball, subject is "a ball". The subject is the thing the line is about, which is the ball. The core is also the ball. So subject and core tend to align.
+
+   For line 1 with the specified shot: the viewer must see an empty plate armour harness standing alone in a museum hall. The line is about the knight. The armor is what's visible. I'll set subject: "a knight" and claims: empty plate armour harness (must), the harness stands alone in a museum hall (must/should), armor appears empty/unoccupied (must). Hmm, but "the harness is empty (no person inside)" is the defining state. 
+
+   Actually, wait. Let me reconsider — subject is "the thing that must be in the picture for the picture to be about this line at all". If the picture shows a plate armor harness, in context the viewer reads it as the knight. The subject name should be generally "a knight"? Or "a plate armour"? The instruction: "Name its GENERAL kind, the word anyone would use — not its type... For an abstract line, the subject is the thing in the core". 
+
+   I think for line 1, subject = "a knight" is too abstract since it's not visible. The visible thing is armor. But the line is about the knight in armor. Hmm. Let me think about what makes the picture "about" this line. The empty armor = the knight. I'll go with subject "a knight", and claims: "an empty plate armour harness is visible" (must), "the harness stands alone in a museum hall" (should or must), "the harness is empty — no person inside" (must). Actually, need to be careful: claims 1-4, each checks one thing, tier must/should.
+
+   Actually for line 1, the shot is specified by the author, so I must keep its meaning. The core is "an empty plate armour harness standing alone in a museum hall". Subject could be "a knight" because the line is about the knight's fighting. But the picture about this line shows the armor. Honestly, I think subject = "a knight" is fine because the line is about the knight. But the instruction says "the thing that must be in the picture for the picture to be about this line at all". If the picture shows armor, that's about the knight. The subject is the knight. OK.
+
+   Hmm, but for line 7 which is about a castle, subject would be "a castle". For abstract lines, subject is the thing in the core.
+
+   Let me just go with: line 1 subject = "a knight" (the one who fights in armor), core = "an empty plate armour harness standing alone in a museum hall is visible", claims:
+   - c1: "a plate armour harness" (must)
+   - c2: "the harness is empty — no person inside" (must)
+   - c3: "a museum hall" (should)
+   
+   Queries: "knight armour museum", "plate armour empty", "armour harness museum display", "gothic armour museum", "empty knight armor display", type: object/scene. The setting is historical; the shot is a museum object. Queries for stock sites: "knight armor museum", "plate armor display", "empty armor suit". Also old artworks: for line 1, an empty armor harness standing alone — this is more of a museum object shot. Museum archives: "armour harness museum". I'll give queries type "object" mostly.
+
+2. «Точного ответа нет, и тот, кто назовёт тебе число в минутах, его сочиняет.»
+   - "There is no exact answer, and whoever gives you a number in minutes is making it up."
+   - This is abstract: the idea that no precise number exists, and anyone giving one is inventing it. The core should be a concrete situation that a camera can photograph and viewers read as this idea. Ideas: uncertainty, invention/making up numbers. A concrete visual: a person (a historian/re-enactor) shrugging? A knight in armor shrugging? An hourglass? Hmm.
+   
+   The line: no exact answer; a number in minutes is fabricated. The visual could be: a person throwing up hands / a re-enactor shaking his head / a scholar with hands empty. Or an hourglass with no visible time measurement. Or a person looking perplexed next to an armor. Hmm.
+
+   The context: this is the chapter about how long a knight could fight. Previous line: the question, with empty armor. Now: no exact answer, anyone giving minutes is inventing. The core: a concrete situation — "a person shrugging with empty hands" or "a knight shaking his head". Hmm.
+
+   Let me think: what shows "no exact answer / making up numbers"? A person spreading their hands in a "I don't know" gesture. Or a clock face without hands? A sundial? Actually "number in minutes" — an hourglass could be a nice visual: the hourglass symbolizes time measured in minutes, but the line says there's no exact answer. Or an hourglass with sand — time. Hmm.
+
+   The idea "he's making it up": someone improvising/making up a number — could show a person counting on fingers? Or a person with a hand gesture of uncertainty.
+
+   I think the best concrete core: "a person spreading their hands in an 'I don't know' gesture" — perhaps a historian/re-enactor in medieval-ish setting? Actually the setting is the documentary; the visuals could be re-enactments, museum objects, etc. But the line is abstract. The core needs to be a concrete situation a camera can photograph. A person with palms up, shrugging, is a universal "I don't know / no answer" gesture. Or a knight shaking his head.
+
+   Alternatively: an empty hourglass? Hmm, "a number in minutes" — time measurement. An hourglass being turned over? That suggests time, but not "no answer".
+
+   Let me think about the whole sequence. Line 1: empty armor in museum. Line 2: no exact answer, anyone giving minutes invents it. Line 3: what is known — energy cost per step 1.5-2x, breathing faster and shallower. Line 4: but the person moved freely, got up from the ground, jumped, fighting went in spurts. Line 5: those who shout "knight was a tin can" and "knight was a superhuman" outrun the data. Line 6: data is humbler: armor cost a lot of effort but was not a cage. Line 7: next time about castles.
+
+   For line 2, something that says "no exact number / invented number". A concrete idea: a person shrugging. Or "a fictive document" — but that's in the next episode. Hmm. The "he's making it up" — a person writing with a quill? Making up a number — the archetype of making things up is writing fiction. Hmm.
+
+   Actually, maybe better: the shot of a knight in armor with a clock? No, that's confusing.
+
+   I think the core: "a person spreading open hands with a shrug" — maybe a re-enactor in plain medieval clothing. Or since the chapter is about measuring, maybe a scholar/researcher shrugging. But the setting is historical 1300-1550, so a person in a medieval hall holding up empty hands.
+
+   Alternatively: "an hourglass with its sand running" — time passing; but the line is "no exact answer". An hourglass is precise time measurement. Hmm, would a viewer read "there is no exact answer" from an hourglass? Not strongly.
+
+   Let me think about "making it up" — inventing a number. A visual metaphor: a person pulling a number "out of thin air"? Can't show that. A person waving a hand dismissively "who knows". 
+
+   Actually, the previous chapter ended with "we don't have a number about the person." Now: "There's no exact answer, and whoever gives you a number in minutes is inventing it." The visual could connect: the empty armor, and now the narrator dismissing invented numbers. A person shrugging in front of the armor? But neighboring lines must show different things. Line 1 is the armor in the museum. Line 2 could show a person shrugging — a new subject.
+
+   Core: "a person shrugging with open palms" — as a bodily sign of "no answer". Claims: palms turned upward (must), shoulders raised — shrugging (must), maybe a medieval setting or an armoured person? Let me decide: The subject: "a person". But the instruction says for abstract lines, the subject is the thing in the core ("a crumpled paper"). So subject = "a person" or "a shrugging person"? Subject should be bare noun phrase, the thing in the core. The core is "a person shrugging with open palms". Subject = "a person". 
+
+   Hmm, but can a "person shrugging" be the core? The example: "a person slumped over an untouched plate" is given as a valid core for an abstract line. So yes.
+
+   But wait — should the person be a knight? The documentary setting is historical; showing a re-enactor or an actor in medieval clothing shrugging works. Claims: "the person shrugs with palms up" (motion true? shrugging is a movement — yes, motion true for the shrug). Hmm, but shrugging can be a still pose too. "shoulders raised in a shrug" could be a pose. Motion: the shrug is a gesture. I could make it motion true: "the person raises their shoulders and open palms". 
+
+   Alternatively: a medieval scholar? Hmm.
+
+   Actually, another idea: the line "whoever gives you a number in minutes is inventing it" — maybe show someone writing a "12 minutes" claim? No, words/captions shouldn't be in the picture.
+
+   I'll go with: an empty-handed person shrugging — showing "no answer exists". 
+
+   Hmm, wait. Maybe better: a knight in armor throwing up his hands, palms open, as if to say "who knows". That ties the theme. But a knight in full armor shrugging — could be a re-enactment. Yes: "an armoured knight shrugging with open palms". Core: "an armoured knight shrugging with open palms is visible". Subject: "a knight". Claims: opens palms upward (must, motion true), raises shoulders — shrugs (must), in a plain field or yard background (should). Queries: "knight shrugging", "medieval reenactment knight", "armor knight gestures", "knight hands up". Hmm, "knight shrug" might not exist on stock sites, but re-enactment footage of knights exists. Queries: "knight armor field", "medieval knight reenactment", "armored knight gesture".
+
+   Let me be careful about queries: 3-6 different search queries for free stock sites, each 2-4 English words. For line 2: "knight shrugging" (2 words), "medieval knight reenactment", "knight open hands", "knight armor closeup". Type: scene.
+
+   Hmm, actually, "knight shrugging" — the query words must mean what I want. "knight shrug" is fine.
+
+3. «Что известно. Расход сил на шаг вырастал от полутора до двух с лишним раз, дышалось чаще и мельче.» — shot: an armoured knight standing calmly in a field, side view
+   - "What is known. Energy expenditure per step grew from 1.5 to over 2 times, breathing became faster and shallower."
+   - The shot is given: an armoured knight standing calmly in a field, side view.
+   - focus: the new thing — energy cost of walking in armor measured by scientists (1.5-2x more), breathing harder.
+   - core: "an armoured knight standing calmly in a field, side view". 
+   - subject: "a knight" (or "an armoured knight"). The thing the line is about: the knight in armor. Subject: "a knight".
+   - claims: the knight wears plate armour (must), the knight is seen from the side (must, since the shot specifies side view), the knight stands calmly in a field/meadow (must/should). Also breathing faster — hmm, "breathed faster and shallower" — that's a claim about physiology; the shot shows a calm knight. The side view could show the chest movement? But "standing calmly" contradicts "breathing harder". The shot shows the calm stand, while the narration says the energy cost. Hmm. The author's shot is "an armoured knight standing calmly in a field, side view". Keep it. Claims: side view (must), stands calm and still in a field (must), full plate armour (should). 
+   - queries: "knight armor field", "armored knight standing", "medieval knight side view", "knight reenactment field", "gothic armor knight". Type: scene.
+
+4. «Но человек при этом двигался свободно, вставал с земли и прыгал, а сам бой шёл рывками, с бросками и паузами.»
+   - "But the person moved freely, got up from the ground and jumped, and the fight itself went in spurts, with lunges and pauses."
+   - The new thing: despite the cost, the armored person could move freely — get up, jump; combat is bursty: lunges and pauses.
+   - This line is about movement; footage needed. Core: an armoured knight moving — rising from the ground or jumping. Since it's about movement that only footage can show, motion claims.
+   - Focus: the armoured knight moving freely — getting up and jumping; the battle is a series of bursts and pauses.
+   - Core: "an armoured knight rising from the ground is visible" or "an armoured knight jumping". The line mentions "got up from the ground and jumped" — rising from the ground is a distinctive action. But also "the fight went in spurts with lunges and pauses". The two parts: (a) the person moved freely — got up, jumped; (b) the fight itself was bursts. The main "new thing" — the person could move freely in armor. The core should be the knight moving. Which one: rising from ground? Jumping? A fight with pauses? 
+   
+   Neighboring lines: line 3 is a calm standing knight (side view). Line 4 must show something different — a knight in motion: getting up from the ground or jumping. Then line 5: those who shout "tin can"/"superhuman" — breastplate close up. Line 6: data humbler: cost a lot of strength but not a cage.
+   
+   For line 4, I'll make the core "an armoured knight getting up from the ground" — it's a concrete, striking action showing freedom of movement. Or "an armoured knight jumping". The line's most visually distinctive actions: "rose from the ground and jumped". Maybe the core should focus on the jump — "an armoured knight jumping" is very readable as "can move freely". Hmm. Or the fight in spurts — "two armoured knights fighting with pauses"? That's more complex.
+   
+   The line has two claims: person moved freely (stood up, jumped), and the fight went in bursts. The second part is about the nature of combat — rhythm. To show "the fight went in spurts, with lunges and pauses" — footage of two knights exchanging blows then stepping apart. That's a scene. Hmm.
+   
+   I think the core should be the knight in motion, and the strongest single image: "an armoured knight jumping". Actually, "вставал с земли и прыгал" — rose from the ground and jumped. Combined: a knight rising from a fall. The core: "an armoured knight rising from the ground" (springing up). Motion: true.
+   
+   Alternatively, include the fight: "two armoured knights fighting in alternating lunges and pauses". That covers "the fight itself went in spurts with lunges and pauses". But the first clause "the person moved freely" is also part. Which is the "new thing this line says"? After line 3 said "energy cost high, breathing hard", line 4 counters: "but the person moved freely, got up, jumped; and the fight went in spurts". The new thing is the freedom of movement and the bursty nature of combat. The most visual: a knight jumping/springing up.
+   
+   Let me choose core: "an armoured knight jumping upward" — a single clear action. Subject: "a knight". Claims: the knight wears plate armour (must), the knight jumps (must, motion true), a field or open ground setting (should). And maybe a second claim about the fight: but the core is one thing. Hmm, the instruction says core is the single thing that even alone makes the viewer think of this line. A knight jumping alone → "the knight could move freely (jump) despite armor". That covers the main thrust. The "fight in spurts" part — could be a claim: "another armoured knight nearby" (should)? Hmm, maybe better to show the fight. Let me reconsider.
+   
+   Actually, the sentence: "Но человек при этом двигался свободно, вставал с земли и прыгал, а сам бой шёл рывками, с бросками и паузами." The "new thing this line says" — two ideas. The focus summary (3-12 words): "a free-moving armoured knight and spurts of combat". For the core, I'll pick "an armoured knight jumping" — it's the most distinctive and directly shows "двигался свободно... прыгал". The battle-in-spurts could be a claim: "another armoured knight faces him — a duel" hmm.
+   
+   Alternatively, core: "an armoured knight rising from the ground" — shows "вставал с земли". Which is stronger? "Jumping" is very readable as "free movement in armor". I'll go with jumping.
+   
+   Actually, let me reconsider — maybe combine: two armoured knights fighting with pauses between exchanges. The line says "the fight itself went in spurts, with lunges and pauses" — a film of two fencers/knight fighters exchanging blows, then a pause, then again. That directly matches. And "двигался свободно, вставал с земли и прыгал" — the knight jumps/lunges. A duel scene with lunges and pauses covers both: the knight moves freely (lunges/jumps) and the fight is bursty. Hmm. But which single thing is the core? "two armoured knights fighting" — a scene. 
+   
+   The instruction: "core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line". A single armoured knight jumping makes the viewer think "knight could move freely". A pair fighting makes "the fight went in spurts". I think the pair fighting captures more of the line. But a jumping knight captures the "rose and jumped" part. Hmm.
+   
+   Let me pick the knight jumping, because the whole chapter is about the individual's capability ("А цифры про человека у нас нет"), and this line emphasizes the person's freedom of movement. The fight-in-spurts is secondary info. Core: "an armoured knight jumping". Claims: c1 "the knight jumps (feet leave the ground)" must, motion true; c2 "the knight wears full plate armour" must; c3 "an open field" should. Queries: "knight jumping armor", "armour knight jump", "medieval knight move", "knight reenactment", "armored knight running", type scene.
+   
+   Hmm, but the line also says "вставал с земли" — getting up from the ground. Maybe the core should be "an armoured knight rising from the ground" — that's a very evocative action (heavy armor, yet he springs up). Actually let me include both actions in claims: core "an armoured knight in motion", claims: jumps (must), rises from the ground (should). Hmm, but core should be specific. 
+   
+   Let me decide: core = "an armoured knight jumping is visible". I'll note that a re-enactment film is ideal. Queries: "knight jumping", "knight reenactment jump", "armour battle reenactment". OK.
+   
+   Actually — reconsider the neighboring-line rule: line 3 is a knight standing calmly (side view). Line 4 must show a DIFFERENT view: a knight in motion — jumping or springing up. Good. Line 5: breastplate close-up. Good, different.
+
+5. «Те, кто кричит «рыцарь был консервной банкой», и те, кто кричит «рыцарь был сверхчеловеком», обгоняют данные.» — shot: a polished plate armour breastplate close up
+   - "Those who shout 'the knight was a tin can' and those who shout 'the knight was a superhuman' outrun the data."
+   - The shot is given: a polished plate armour breastplate close up.
+   - The line: extreme claims on both sides (tin can vs superhuman) go beyond the data.
+   - focus: the two extreme myths about the knight (helpless tin can / superhuman) outrunning the evidence.
+   - core: "a polished plate armour breastplate" close up.
+   - subject: "a breastplate" or "a plate armour". The thing the line is about: the knight in armor — but the shot shows the breastplate. The breastplate is the object discussed (the "tin can" metaphor — the armor). Subject: "a breastplate" (general kind: the chest piece of armor). Hmm, "breastplate" is a general word. Actually the instruction for subject says name the general kind, not type. "a breastplate" is fine. Or "a plate armour". The shot: breastplate close up. I'll say subject: "a breastplate".
+   - claims: the breastplate is polished/shiny (must — because the shot says polish), close-up view (must), the breastplate is plate armour (should — but it's the subject so this is inherent). Hmm, claims should check one thing each: "the breastplate is polished and reflective" (must), "extreme close-up of the metal surface" (should). Maybe "the breastplate reflects light" — nice. 
+   - queries: "knight breastplate closeup", "polished armor detail", "steel breastplate", "plate armor shine", "armor metal closeup", type: object.
+
+6. «Данные скромнее: доспех отнимал много сил, но клеткой не был.»
+   - "The data is humbler: the armor cost a lot of strength, but was not a cage."
+   - New thing: the measured conclusion — armor is heavy-costing but not a cage (you can move in it).
+   - This follows the breastplate close-up, the two myths. Now the sober conclusion: armor took much effort but wasn't a cage. 
+   - What to show? A knight in armor moving with freedom — but line 4 already showed a jumping knight. Neighboring lines: line 5 is breastplate close-up, line 7 is a castle. Line 6 must show something different from both and from line 4. So not a jumping knight, not a breastplate close-up.
+   - The idea "was not a cage" — a knight in armor walking/demonstrating movement freely — e.g., a knight bending, kneeling, swinging arms, walking towards camera. Or a side-by-side: a knight in armor doing ordinary movements. Or a knight walking confidently. The "cost a lot of strength" — a knight breathing hard, wiping sweat after removing helmet? Hmm.
+   - "Доспех отнимал много сил, но клеткой не был" — two parts: took a lot of strength (exhaustion, effort), but was not a cage (free movement). A good core: "an armoured knight wiping sweat after exertion" — shows the cost (sweat/exhaustion). Or "an armoured knight moving freely through a field" — shows not a cage. 
+   - Since line 4 showed the knight jumping (freedom), line 6's new thing should emphasize the cost: the effort. A knight breathing hard / exhausted but still moving. Core: "an armoured knight breathing heavily after exertion" or "a knight wiping sweat from his face with a gauntlet". Hmm.
+   - The line in context: after the two extremes, the data says: armor cost much strength but wasn't a cage. The new balance: effort yes, cage no. The visual should show either the effort or the freedom. Since line 4 showed freedom, line 6 could show effort: "an exhausted armoured knight" — but wait, the line isn't "knight was exhausted", it's "armor took a lot of strength". A knight breathing hard, helmet off, wiping sweat — that's a concrete bodily sign of effort. And that's different from line 4's jumping. 
+   - Alternatively, show a knight in armor being measured by scientists — the "data" — but that breaks the historical setting? The documentary about measurements could show modern re-enactors with sensors. Actually the episode is about what scientists measured — a modern mock? But the shot for line 3 was "an armoured knight standing calmly in a field, side view" — presumably a re-enactment. Hmm.
+   - I'll go with: core "an armoured knight wiping sweat from his brow" — a bodily sign of great effort in armor. Subject: "a knight". Claims: c1 the knight is in plate armour (must), c2 he wipes his forehead/sweat (must, motion true), c3 helmet removed/underarm (should). Queries: "knight removing helmet", "knight wipe sweat", "armored knight exhausted", "knight reenactment sweat", "helmet off knight". Type: scene.
+   
+   Hmm, but "клеткой не был" (was not a cage) — also part. Maybe the core should show both: e.g., a knight moving easily. But one image — an exhausted knight — reads "armor costs effort". The "not a cage" part is the second half. If I show an exhausted knight, the viewer thinks "armor is exhausting" but not "wasn't a cage". If I show a knight moving freely, the viewer thinks "not a cage" but not "took strength". 
+   
+   The focus: "armour cost strength but was not a cage". The best single image might be: a knight in armor bending/kneeling freely while visibly tired? That's two things. Hmm.
+   
+   Or: a knight in armor drinking water after removing the helmet — shows exertion + hydration = cost of strength, and he moves freely (took off helmet, holds a cup). Hmm.
+   
+   Let me think about the "not a cage" visual: a knight in armor bent over touching his toes? or a knight sitting down in armor? Actually a famous demonstration: a knight in armor lying down and getting up alone (that's line 4: "вставал с земли"). Line 4 already showed rising/jumping. For line 6, the "not a cage" could be a knight walking around with unrestricted arm movement — e.g., raising arms, turning. But to avoid repeating line 4, focus on effort.
+   
+   I'll go with the exhausted knight wiping sweat — with a claim about moving freely? No, keep it clean: the core is "an armoured knight wiping sweat". Actually, let me reconsider: maybe the core should be "an armoured knight with removed helmet, breathing heavily, sweat on face" — a state, not an action. That's a striking image: a knight in armor, helmet off, sweating, tired — reads "the armor cost enormous effort". And the fact that he's standing/moving shows not a cage? Vague.
+   
+   I'll commit: core = "an armoured knight wiping sweat from his face". Claims: c1 "he wipes sweat/forehead with his hand or padding" must motion true; c2 "plate armour and an open helmet" must; c3 "an outdoor field setting" should. Queries: "knight sweating armor", "knight remove helmet", "armored knight tired", "medieval reenactment heat", "knight drinking water". 
+   
+   Hmm, "knight drinking water" — that's a different action. For queries, 3-6 queries to find the core: "knight sweat", "knight remove helmet", "exhausted knight armor", "armor reenactment summer". OK.
+
+7. «В следующий раз про замки. Крепость, которую считали неприступной, сдалась из-за поддельного письма.» — shot: a crusader castle on a rocky hill
+   - "Next time about castles. The fortress that was considered impregnable surrendered because of a forged letter."
+   - The shot is given: a crusader castle on a rocky hill.
+   - This is a teaser for the next episode. The line: an impregnable fortress fell due to a forged letter.
+   - focus: the teaser — a supposedly impregnable crusader fortress that surrendered because of a forged letter.
+   - core: "a crusader castle on a rocky hill".
+   - subject: "a castle" (or "a fortress"). The line is about the fortress. Subject: "a castle".
+   - claims: the castle stands on a rocky hill (must — from the shot), it looks strong/impregnable — walls, towers (should), stone fortress architecture (should). 
+   - queries: "crusader castle hill", "krak des chevaliers", "medieval fortress hill", "stone castle rocky cliff", "crusader fortress". Since a known castle: Krak des Chevaliers — a famous crusader castle. Query "krak des chevaliers" (2 words? actually "Krak des Chevaliers" is 2 words, good, type scene or object — it's a place; type scene). The shot is a castle on a rocky hill — Krak des Chevaliers is exactly that. I'll add "krak des chevaliers" as a query type scene.
+   
+   Note: the forged letter — the line mentions "поддельного письма" (forged letter). Should the core be the castle or the letter? The shot is the castle. The line's new thing is the twist: the impregnable fortress surrendered due to a forged letter. But the author's shot is the castle. Keep the castle as the core. The forged letter could be a claim? No, that's the next episode. The castle on the hill is the core. The "supposedly impregnable" aspect is conveyed by the massive castle. The forged letter is narration; the picture shows the castle. OK.
+
+8. «Проверяй, что тебе показывают.»
+   - "Check what they show you."
+   - The final line: a moral — verify what is shown to you.
+   - Context: the teaser said the "impregnable" fortress surrendered because of a forged letter — a fake document. The lesson: check what you're shown. This connects to the forged letter. 
+   - The core: a concrete situation that reads "verify what you're shown". Ideas: a person examining a paper closely / holding an old letter up to the light / a detective inspecting a document / a magnifying glass over a document. Since the next-episode teaser mentioned a forged letter, showing a person inspecting an old letter/parchment suspiciously fits. A forged letter — a person holding a parchment up to the light to check the seal/writing. That's a great visual: "a hand holding an old parchment up to the light". Or "a person examining a document with suspicion".
+   - Subject: "a letter" or "a document". The line is about checking what you're shown — the thing to inspect is the letter/document. Core: "a hand holding an old letter up to the light to inspect it" or "a person examining an old document closely". 
+   - Let me define: core = "a hand holding an old parchment letter up to the light is visible". Subject = "a letter". Claims: c1 "the letter/parchment is held against the light" must; c2 "an old-fashioned seal or handwriting is visible" should; c3 "it is inspected closely (squinting or close look)" should. Hmm, movements: holding a paper to the light is a motion but can be a still. I'll add motion? "held up to the light" is a position/action. Could be static. I'll not add motion, or add motion for "the paper is turned". Keep simple.
+   - Alternatively, the core could be "a person looking at a document with narrowed eyes

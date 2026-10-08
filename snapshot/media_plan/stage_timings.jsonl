@@ -812,3 +812,21 @@
 {"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 415, "ts": 1791431315.097, "clip_idx": 15}
 {"stage": "cheap_gate_clip", "t_wall": 0.0009, "ok": true, "pid": 415, "ts": 1791431315.168, "clip_idx": 15}
 {"stage": "slot_first", "t_wall": 316.4263, "ok": true, "pid": 415, "ts": 1791431514.379, "clip_idx": 15}
+{"stage": "slot_total", "t_wall": 2.2479, "ok": true, "pid": 416, "ts": 1791432514.27, "clip_idx": 0}
+{"stage": "slot_total", "t_wall": 0.0928, "ok": true, "pid": 416, "ts": 1791432514.363, "clip_idx": 1}
+{"stage": "slot_total", "t_wall": 0.1097, "ok": true, "pid": 416, "ts": 1791432514.473, "clip_idx": 2}
+{"stage": "slot_total", "t_wall": 0.4862, "ok": true, "pid": 416, "ts": 1791432514.959, "clip_idx": 3}
+{"stage": "slot_total", "t_wall": 0.4057, "ok": true, "pid": 416, "ts": 1791432515.365, "clip_idx": 4}
+{"stage": "slot_total", "t_wall": 0.3584, "ok": true, "pid": 416, "ts": 1791432515.723, "clip_idx": 5}
+{"stage": "slot_total", "t_wall": 0.468, "ok": true, "pid": 416, "ts": 1791432516.191, "clip_idx": 6}
+{"stage": "slot_total", "t_wall": 0.3308, "ok": true, "pid": 416, "ts": 1791432516.522, "clip_idx": 7}
+{"stage": "slot_total", "t_wall": 0.3821, "ok": true, "pid": 416, "ts": 1791432516.905, "clip_idx": 8}
+{"stage": "slot_total", "t_wall": 0.3376, "ok": true, "pid": 416, "ts": 1791432517.242, "clip_idx": 9}
+{"stage": "slot_total", "t_wall": 0.0735, "ok": true, "pid": 416, "ts": 1791432517.316, "clip_idx": 10}
+{"stage": "slot_total", "t_wall": 0.2189, "ok": true, "pid": 416, "ts": 1791432517.535, "clip_idx": 11}
+{"stage": "slot_total", "t_wall": 0.2279, "ok": true, "pid": 416, "ts": 1791432517.763, "clip_idx": 12}
+{"stage": "slot_total", "t_wall": 0.2224, "ok": true, "pid": 416, "ts": 1791432517.986, "clip_idx": 13}
+{"stage": "slot_total", "t_wall": 0.1334, "ok": true, "pid": 416, "ts": 1791432518.119, "clip_idx": 14}
+{"stage": "slot_first", "t_wall": 0.1467, "ok": true, "pid": 416, "ts": 1791432518.266, "clip_idx": 15}
+{"stage": "clip_render", "t_wall": 20.208, "ok": true, "pid": 416, "ts": 1791432548.611, "clip_idx": 15, "fn": "parallax_kenburns"}
+{"stage": "slot_total", "t_wall": 30.4921, "ok": true, "pid": 416, "ts": 1791432548.611, "clip_idx": 15}

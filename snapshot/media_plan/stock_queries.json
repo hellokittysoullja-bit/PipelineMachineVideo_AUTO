@@ -4150,6 +4150,2081 @@
     }
    ],
    "bsig": ""
+  },
+  "fad949a67c518eb3": {
+   "focus": "a common myth about knights being introduced",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight in armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a person in full plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour is polished metal",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "knight full plate armour",
+    "medieval knight reenactment",
+    "plate armour museum"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Давай сначала разберёмся с тем, что ты наверняка слышал.",
+   "queries_for": [
+    {
+     "q": "knight full plate armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight reenactment",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "plate armour museum",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "f5d83817e6569b94": {
+   "focus": "a knight hoisted onto a horse by a crane",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured knight is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a knight in armour mounts a horse",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a crane or hoist",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "a horse",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "knight mounting horse illumination",
+    "medieval manuscript knight horse",
+    "armoured knight horse painting"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Рыцаря в латах поднимали на коня краном. Упавший лежал как перевёрнутая черепаха и ждал, пока его добьют.",
+   "queries_for": [
+    {
+     "q": "knight mounting horse illumination",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval manuscript knight horse",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "armoured knight horse painting",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "d21f864d241a"
+  },
+  "7dbc3cae85242a94": {
+   "focus": "the armour supposedly weighed fifty to a hundred kilograms",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a suit of armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a full suit of plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour looks heavy and massive",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "full plate armour suit",
+    "medieval armour museum display",
+    "heavy plate armour"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "А весил этот доспех то ли пятьдесят, то ли все сто килограммов.",
+   "queries_for": [
+    {
+     "q": "full plate armour suit",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval armour museum display",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "heavy plate armour",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "0611aaf923fd5fb4": {
+   "focus": "a field plate armour weighed twenty to twenty-five kilograms",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a field plate armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a field plate armour in a museum",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "three quarter view of the armour",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the armour stands on a display",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "field plate armour museum",
+    "medieval armour three quarter view",
+    "metropolitan museum armour"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Начнём с веса. Музей Метрополитен в Нью-Йорке пишет, что боевой полевой доспех весил от двадцати до двадцати пяти килограммов,",
+   "queries_for": [
+    {
+     "q": "field plate armour museum",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval armour three quarter view",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "metropolitan museum armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "556b74e9a619"
+  },
+  "3fb9f7f39e45d8fa": {
+   "focus": "the helmet weighed two to four kilograms and weight was distributed over the body",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a helmet is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a medieval helmet",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the helmet is small and light-looking",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "a person wearing armour",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "medieval helmet close up",
+    "armet helmet museum",
+    "knight wearing armour"
+   ],
+   "subject": "a helmet",
+   "model": "ds/deepseek-v4-pro",
+   "text": "а шлем два-четыре. Причём вес распределён по всему телу.",
+   "queries_for": [
+    {
+     "q": "medieval helmet close up",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "armet helmet museum",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "knight wearing armour",
+     "for": [
+      "c3"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "6110d5c712eeb307": {
+   "focus": "a Nuremberg armour from around 1525 weighed just over twenty-two kilograms",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a Nuremberg field armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a Nuremberg field armour of the 1520s",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "whole figure on museum display",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the armour is complete with helmet",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "nuremberg field armour 1525",
+    "german gothic armour museum",
+    "16th century armour display"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Есть и конкретный экземпляр: нюрнбергский доспех примерно тысяча пятьсот двадцать пятого года, двадцать два килограмма с небольшим.",
+   "queries_for": [
+    {
+     "q": "nuremberg field armour 1525",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "german gothic armour museum",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "16th century armour display",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "1715ab80ccd3"
+  },
+  "354bb7e54f6198a2": {
+   "focus": "tournament armour was heavier but worn only briefly",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a tournament armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a tournament armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour is heavier and more reinforced",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "a jousting scene",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "tournament armour jousting",
+    "jousting armour museum",
+    "medieval jousting reenactment"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Тяжелее были турнирные, но их надевали ненадолго.",
+   "queries_for": [
+    {
+     "q": "tournament armour jousting",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "jousting armour museum",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval jousting reenactment",
+     "for": [
+      "c3"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "a478d1f7d202cdc2": {
+   "focus": "the crane myth first appeared in Punch magazine in 1843",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a satirical cartoon is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a 19th century cartoon of a knight hoisted onto a horse by a crane",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the cartoon is satirical in style",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "a horse and a crane",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "punch magazine knight crane cartoon",
+    "19th century satirical cartoon knight",
+    "victorian cartoon knight horse"
+   ],
+   "subject": "a cartoon",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Теперь про кран. Первые упоминания о нём нашли в сатирическом журнале «Панч» в тысяча восемьсот сорок третьем году.",
+   "queries_for": [
+    {
+     "q": "punch magazine knight crane cartoon",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "19th century satirical cartoon knight",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "victorian cartoon knight horse",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "d2d4c11073fe"
+  },
+  "c45e1453ca8ac344": {
+   "focus": "myth persists in cinema",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight in armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is in a film scene",
+     "tier": "should"
+    },
+    {
+     "id": "c2",
+     "text": "the knight is being lifted",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "knight crane movie scene",
+    "medieval knight film",
+    "knight armour cinema"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Рыцарей в латах на войне к тому времени давно не было, а шутка про них была. Кино потом только закрепило картинку.",
+   "queries_for": [
+    {
+     "q": "knight crane movie scene",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight film",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight armour cinema",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "c36e0f2f8637f206": {
+   "focus": "scientific measurement of movement effort",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a steel breastplate is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the breastplate has fine scratches",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the breastplate is shown in close up",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the breastplate is made of steel",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "steel breastplate close up",
+    "armour scratches detail",
+    "medieval breastplate museum"
+   ],
+   "subject": "a breastplate",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Так что вес и кран оказались мифом. Только вес был не главным вопросом. Главное, сколько сил уходит на каждое движение. А вот это учёные измеряли.",
+   "queries_for": [
+    {
+     "q": "steel breastplate close up",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "armour scratches detail",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval breastplate museum",
+     "for": [
+      "core",
+      "c3"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "dad2a4d0d14e"
+  },
+  "7496e35288c49649": {
+   "focus": "padded arming doublet under plate armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a padded arming doublet with laces is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the doublet is padded and quilted",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "laces are visible on the doublet",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "arming doublet padded",
+    "medieval padded armor undergarment",
+    "quilted gambeson"
+   ],
+   "subject": "a padded doublet",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Одна деталь, которую обычно не показывают: под пластинами рыцарь не ходил в рубашке.",
+   "queries_for": [
+    {
+     "q": "arming doublet padded",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval padded armor undergarment",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "quilted gambeson",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "138c165677b4"
+  },
+  "6977bcdeeb9cb52b": {
+   "focus": "seven kilograms of the forty were the underarmour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a padded doublet with mail gussets is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "mail gussets are sewn onto the doublet",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the doublet is shown in close-up",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "mail gussets doublet",
+    "arming doublet chainmail",
+    "medieval armor underlayer closeup"
+   ],
+   "subject": "a padded doublet",
+   "model": "ds/deepseek-v4-flash",
+   "text": "В швейцарском опыте из сорока килограммов семь приходились на поддоспешник.",
+   "queries_for": [
+    {
+     "q": "mail gussets doublet",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "arming doublet chainmail",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval armor underlayer closeup",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "b948b99f0303"
+  },
+  "c3b75cd4a90ca1c0": {
+   "focus": "quilted doublet with mail where plates left gaps",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a quilted doublet with mail inserts is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the doublet is quilted",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "mail inserts are visible at the gaps",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "quilted doublet mail inserts",
+    "arming doublet chainmail gussets",
+    "medieval padded armor"
+   ],
+   "subject": "a padded doublet",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Это стёганый дублет с кольчужными вставками там, где пластины не закрывали тело.",
+   "queries_for": [
+    {
+     "q": "quilted doublet mail inserts",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "arming doublet chainmail gussets",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval padded armor",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "54d7daf8681e06aa": {
+   "focus": "underarmour hindered more than the iron",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person in a padded doublet is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the person wears only the padded doublet",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the person appears constrained or uncomfortable",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "man wearing arming doublet",
+    "medieval reenactor padded armor",
+    "quilted gambeson person"
+   ],
+   "subject": "a padded doublet",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Сами швейцарцы пишут, что одежда под доспехом могла мешать сильнее, чем железо поверх неё.",
+   "queries_for": [
+    {
+     "q": "man wearing arming doublet",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval reenactor padded armor",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "quilted gambeson person",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "ce9a754c998bae62": {
+   "focus": "armour forged to measure for a specific man",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a plate armour made to measure is visible in a museum case",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour is displayed in a museum case",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour is full plate",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "medieval plate armor museum",
+    "full plate armour display",
+    "metropolitan museum armor"
+   ],
+   "subject": "a plate armour",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Теперь про сам доспех. Музей Метрополитен подчёркивает слово «подогнанный»: доспех ковали по мерке под конкретного человека.",
+   "queries_for": [
+    {
+     "q": "medieval plate armor museum",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "full plate armour display",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "metropolitan museum armor",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "b524209e90b4"
+  },
+  "25ff4c51fee82553": {
+   "focus": "even untrained man can mount, sit, lie down in fitted armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person in full plate armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the person is in full plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the person is sitting or lying on the ground",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the person appears able to move",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "knight in armor sitting",
+    "armored knight lying ground",
+    "medieval reenactor plate armor"
+   ],
+   "subject": "a plate armour",
+   "model": "ds/deepseek-v4-flash",
+   "text": "И в таком доспехе, по словам музея, даже неподготовленный человек может сесть на коня и слезть с него, сесть или лечь на землю и встать.",
+   "queries_for": [
+    {
+     "q": "knight in armor sitting",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armored knight lying ground",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval reenactor plate armor",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "047dd5aaacb96b9e": {
+   "focus": "great bascinet for foot combat",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a great bascinet helmet with a visor is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the helmet has a visor",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the helmet is shown in close-up",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "great bascinet helmet",
+    "medieval helmet visor",
+    "bascinet closeup"
+   ],
+   "subject": "a great bascinet",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Шлемы тоже были разными. Большой бацинет для пешего боя в швейцарской",
+   "queries_for": [
+    {
+     "q": "great bascinet helmet",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval helmet visor",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "bascinet closeup",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "53b491815b0c"
+  },
+  "fbcbfa2dc212ec58": {
+   "focus": "light sallet weighs three kilograms or less",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a light sallet helmet is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the helmet is a sallet",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the helmet appears light and simple",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "sallet helmet",
+    "medieval sallet",
+    "light helmet 15th century"
+   ],
+   "subject": "a sallet",
+   "model": "ds/deepseek-v4-flash",
+   "text": "работе весит около шести килограммов, а лёгкий салад три и меньше.",
+   "queries_for": [
+    {
+     "q": "sallet helmet",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval sallet",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "light helmet 15th century",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "a1688621a6808d7f": {
+   "focus": "Hastings manuscript text on how to put on armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a 15th century manuscript page is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the page shows a squire helping a knight into armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the page is from a medieval manuscript",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "hastings manuscript arming knight",
+    "medieval manuscript squire armor",
+    "arming a knight manuscript"
+   ],
+   "subject": "a manuscript page",
+   "model": "ds/deepseek-v4-flash",
+   "text": "И последнее. Сохранился средневековый текст о том, как надевать доспех, он из так называемой Гастингсовой рукописи.",
+   "queries_for": [
+    {
+     "q": "hastings manuscript arming knight",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval manuscript squire armor",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "arming a knight manuscript",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "2b5fe269be2d"
+  },
+  "342c393c731bb40e": {
+   "focus": "no source for the fifteen minutes claim",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a manuscript page with text is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the page shows text",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the page appears old and medieval",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "medieval manuscript text page",
+    "old manuscript writing",
+    "hastings manuscript"
+   ],
+   "subject": "a manuscript page",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Сколько это занимало времени, там не сказано. Цифры вроде «пятнадцати минут» ходят среди реконструкторов, а источника у них я не нашёл.",
+   "queries_for": [
+    {
+     "q": "medieval manuscript text page",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "old manuscript writing",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "hastings manuscript",
+     "for": [
+      "core"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": ""
+  },
+  "7b445a11d69b94e9": {
+   "focus": "knights in armour living in armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a manuscript miniature of knights in armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knights wear full plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the scene is a medieval manuscript illumination",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "knights armour manuscript miniature",
+    "medieval knights in armour",
+    "armoured knights fighting"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Раз цифр про бой нет, посмотрим на тех, кто в доспехах жил.",
+   "queries_for": [
+    {
+     "q": "knights armour manuscript miniature",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval knights in armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "armoured knights fighting",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "739171e57fef"
+  },
+  "e444c57ce4359739": {
+   "focus": "Jean le Meingre Boucicaut marshal of France",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a portrait of a knight in armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is depicted as a marshal",
+     "tier": "should"
+    },
+    {
+     "id": "c2",
+     "text": "the image is from a medieval manuscript",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "boucicaut knight portrait",
+    "medieval knight portrait manuscript",
+    "marshal of france medieval"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Жан ле Менгр по прозвищу Бусико, маршал Франции.",
+   "queries_for": [
+    {
+     "q": "boucicaut knight portrait",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval knight portrait manuscript",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "marshal of france medieval",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "2cae80ee1bb4"
+  },
+  "607dfc307daa9729": {
+   "focus": "his biography written around 1409",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an open medieval manuscript is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the manuscript has handwritten text",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the manuscript is old and medieval",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "medieval manuscript open",
+    "old handwritten book",
+    "illuminated manuscript page"
+   ],
+   "subject": "a manuscript",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Его жизнеописание записали около тысяча четыреста девятого года.",
+   "queries_for": [
+    {
+     "q": "medieval manuscript open",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "old handwritten book",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "illuminated manuscript page",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "860451babca1a227": {
+   "focus": "he ran and walked to train breathing",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight running in armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is in full armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight is running or walking",
+     "tier": "must",
+     "motion": true
+    }
+   ],
+   "queries": [
+    "knight running armour",
+    "armoured knight walking",
+    "medieval knight training"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Там сказано, что он бегал и подолгу ходил пешком, чтобы привыкнуть к долгому дыханию.",
+   "queries_for": [
+    {
+     "q": "knight running armour",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured knight walking",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight training",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "5d99729538fb"
+  },
+  "ef799a873242b812": {
+   "focus": "he vaulted onto a horse without stirrup",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight vaulting onto a horse is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is in full armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight mounts the horse without using a stirrup",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c3",
+     "text": "a horse is visible",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "knight vaulting horse",
+    "armoured knight mounting horse",
+    "medieval knight horse jump"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Вскакивал на коня в полном доспехе, не касаясь стремени.",
+   "queries_for": [
+    {
+     "q": "knight vaulting horse",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured knight mounting horse",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight horse jump",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "576f7fd681d6d8a0": {
+   "focus": "he climbed a ladder with only his arms",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight climbing a ladder with his arms is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is in armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the ladder is against a wall",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the knight uses only his arms to climb",
+     "tier": "must",
+     "motion": true
+    }
+   ],
+   "queries": [
+    "knight climbing ladder",
+    "armoured man ladder wall",
+    "medieval siege ladder"
+   ],
+   "subject": "a ladder",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Лазил на одних руках по изнанке большой лестницы, приставленной к стене.",
+   "queries_for": [
+    {
+     "q": "knight climbing ladder",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man ladder wall",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval siege ladder",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "b47452eafcc7"
+  },
+  "514133df6371106c": {
+   "focus": "he made a jump in armour without helmet",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight leaping in armour without a helmet is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is in full armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight has no helmet",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the knight is jumping",
+     "tier": "must",
+     "motion": true
+    }
+   ],
+   "queries": [
+    "knight jumping armour",
+    "armoured man leaping",
+    "medieval knight no helmet"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "И делал прыжок с рывком во всём доспехе, кроме шлема.",
+   "queries_for": [
+    {
+     "q": "knight jumping armour",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man leaping",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight no helmet",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "aeed65128da3"
+  },
+  "303eb88b222d1ca4": {
+   "focus": "the word salto means just a jump not a somersault",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight jumping is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is in armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight is not doing a somersault",
+     "tier": "must",
+     "motion": true
+    }
+   ],
+   "queries": [
+    "knight jumping",
+    "armoured man jump",
+    "medieval knight leap"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "В пересказах это называют сальто, но слово означает просто прыжок, так что кульбит я тебе не обещаю.",
+   "queries_for": [
+    {
+     "q": "knight jumping",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man jump",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight leap",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "8b23d59814dff649": {
+   "focus": "this is a praise book not a test protocol",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an open medieval manuscript on a wooden table is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the manuscript is open",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the table is wooden",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "the manuscript is old and handwritten",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "open manuscript wooden table",
+    "medieval book on table",
+    "old manuscript page"
+   ],
+   "subject": "a manuscript",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Оговорка: это хвалебная книга о герое, и протоколом испытаний её не назовёшь.",
+   "queries_for": [
+    {
+     "q": "open manuscript wooden table",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval book on table",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "old manuscript page",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "8c092e771b50"
+  },
+  "e309f404ffa7e061": {
+   "focus": "endurance and jumping in armour were normal training",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight training in armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is in full armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight is exercising or training",
+     "tier": "must",
+     "motion": true
+    }
+   ],
+   "queries": [
+    "knight training armour",
+    "armoured knight exercise",
+    "medieval knight workout"
+   ],
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Но она показывает, что в те годы выносливость и прыжки в латах считались обычной тренировкой. Заметь, что именно он тренировал: дыхание.",
+   "queries_for": [
+    {
+     "q": "knight training armour",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured knight exercise",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight workout",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "f90cccd405271392": {
+   "focus": "half of armoured foot combat techniques are throws",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a fight book page showing armoured wrestlers is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the fighters are in armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the fighters are wrestling or throwing",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c3",
+     "text": "the page is from a medieval fight book",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "fight book armoured wrestling",
+    "medieval wrestling armour",
+    "armoured fighters ground"
+   ],
+   "subject": "a fight book",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Теперь фехтовальные книги пятнадцатого века. По обзору Жаке, почти половина приёмов пешего боя в доспехе это броски на землю.",
+   "queries_for": [
+    {
+     "q": "fight book armoured wrestling",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval wrestling armour",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "armoured fighters ground",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "137d3e0e0b78"
+  },
+  "93329906a6680f3b": {
+   "focus": "treatises have sections on fighting lying down and getting up",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a fight book page showing a fighter on the ground is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the fighter is in armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the fighter is lying on the ground",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the page is from a medieval treatise",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "fight book lying ground",
+    "armoured fighter on ground",
+    "medieval treatise wrestling"
+   ],
+   "subject": "a fight book",
+   "model": "ds/deepseek-v4-flash",
+   "text": "В трактатах есть разделы о том, как драться лёжа и как вставать.",
+   "queries_for": [
+    {
+     "q": "fight book lying ground",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "armoured fighter on ground",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval treatise wrestling",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": ""
+  },
+  "6463d911abf21169": {
+   "focus": "tournament fights stopped when disarmed or thrown",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a tournament scene with a fallen knight is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a knight is on the ground",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight is in armour",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the scene is a tournament",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "tournament knight fallen",
+    "medieval tournament fight",
+    "knight knocked down"
+   ],
+   "subject": "a tournament",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Турнирные схватки часто останавливали, когда бойца обезоруживали или валили.",
+   "queries_for": [
+    {
+     "q": "tournament knight fallen",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval tournament fight",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight knocked down",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "e9281e29af4cdd66": {
+   "focus": "authors advise conserving movements to save strength and protect weak spots",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a fight book page with a knight in a defensive stance is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight is in armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight is in a guarded or defensive pose",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the page is from a medieval fight book",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "fight book defensive stance",
+    "armoured knight guard",
+    "medieval fencing treatise"
+   ],
+   "subject": "a fight book",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Авторы советуют беречь движения, и объясняют это двояко: сбережением сил и защитой слабых мест доспеха.",
+   "queries_for": [
+    {
+     "q": "fight book defensive stance",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "armoured knight guard",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval fencing treatise",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": ""
+  },
+  "d59d3e392430fefd": {
+   "focus": "chronicle of the Combat of Thirty in 1351",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a manuscript illumination of the Combat of Thirty is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the scene shows a group of knights fighting",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the image is from a medieval chronicle",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the knights are in armour",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "combat of thirty illustration",
+    "combat of thirty knights",
+    "medieval chronicle battle"
+   ],
+   "subject": "a chronicle",
+   "model": "ds/deepseek-v4-flash",
+   "text": "И хроника про усталость. «Бой тридцати», тысяча триста пятьдесят первый год.",
+   "queries_for": [
+    {
+     "q": "combat of thirty illustration",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "combat of thirty knights",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval chronicle battle",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "dde551775c4d"
   }
  }
 }
