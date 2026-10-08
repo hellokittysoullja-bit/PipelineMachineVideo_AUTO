@@ -1,0 +1,509 @@
+{
+  "enabled": false,
+  "mode": "off",
+  "scored": 0,
+  "diverged_from_base": 0,
+  "cache_hits_skipped_analysis": 15,
+  "clips": [
+    {
+      "index": 0,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 1,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 2,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 3,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 4,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 5,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 6,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 7,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 8,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 9,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 10,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 11,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 12,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 13,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 14,
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "index": 15,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 16,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 17,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 18,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 19,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 20,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 21,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 22,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 23,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 24,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 25,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 26,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 27,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 28,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 29,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 30,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 31,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 32,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 33,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 34,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 35,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 36,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 37,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 38,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 39,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 40,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 41,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 42,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 43,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 44,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 45,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 46,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 47,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 48,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 49,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 50,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 51,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 52,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 53,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 54,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 55,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 56,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 57,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 58,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 59,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 60,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 61,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 62,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 63,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 64,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 65,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 66,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 67,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 68,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 69,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 70,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 71,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 72,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 73,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 74,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 75,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 76,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 77,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 78,
+      "decision": "absorbed_into_neighbour"
+    },
+    {
+      "index": 79,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 80,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 81,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 82,
+      "decision": "absorbed_into_neighbour"
+    },
+    {
+      "index": 83,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 84,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 85,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 86,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 87,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 88,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 89,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 90,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 91,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 92,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 93,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 94,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 95,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 96,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 97,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 98,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 99,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 100,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 101,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 102,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 103,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 104,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 105,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 106,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 107,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 108,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 109,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 110,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 111,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 112,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 113,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 114,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 115,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 116,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 117,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 118,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 119,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 120,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 121,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 122,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 123,
+      "decision": "skipped_disabled"
+    },
+    {
+      "index": 124,
+      "decision": "skipped_disabled"
+    }
+  ]
+}

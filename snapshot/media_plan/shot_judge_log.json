@@ -1,0 +1,6022 @@
+{
+ "model": "qwen/qwen3.7-plus",
+ "gateway": {
+  "base_url": "https://anymodel.org/v1",
+  "calls": 455,
+  "failures": 1,
+  "lost_bodies": 0,
+  "empty_answers": 0,
+  "spent": 190411,
+  "spend_cap": 400000,
+  "dead": null,
+  "pause_wait_sec": 0.0,
+  "reasked": 13,
+  "empty_answer_reasked": 0,
+  "fallback_switches": 0,
+  "fallback_answers": {}
+ },
+ "calls": [
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a question left hanging for later",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "pixabay:4334177": 0,
+    "3854130": 0,
+    "3772532": 0,
+    "33715994": 0,
+    "pixabay:5723449": 0,
+    "pixabay:1468032": 0,
+    "pixabay:5723452": 0,
+    "pixabay:4009695": 0,
+    "5240861": 0,
+    "3905604": 0,
+    "12828444": 1,
+    "36763540": 0,
+    "pixabay:2681494": 0,
+    "5619339": 0,
+    "commons:156006763": 0,
+    "pixabay:3385451": 0,
+    "4316723": 0,
+    "11046287": 2,
+    "pixabay:2072602": 0,
+    "8638708": 0
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 1228
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "11046287",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The man is looking down at his sword and armor with a contemplative or puzzled expression, fitting the description. The image is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 479,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "12828444",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a street performer speaking into a megaphone while holding a helmet; he is not looking at the armour nor does he have a puzzled or questioning expression.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 964,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:4334177",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in a thoughtful pose with question marks, fitting the puzzled/questioning description, but he is not looking at armor or a screen. It is a photograph with graphic overlays.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "cost": 809,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "3854130",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a young man looking up with his hand on his chin, a classic pose indicating thought or puzzlement. He is looking into empty space, not at a screen or armor. The image is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 950,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "3772532",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a person in a classic pensive pose with a hand on their chin and an upward gaze, indicating a questioning or puzzled look. No screen or armor is visible. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 1185,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "33715994",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man shrugging with a puzzled expression looking directly at the camera, not at a screen or armour. It is a standard stock photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "cost": 1045,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:5723449",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in a thinking pose with question marks in the background, fitting the questioning look and puzzled subject, but he is looking into space, not at a screen or armour. It is a stock photo.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "cost": 824,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:1468032",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph of a young man looking directly at the camera with a serious, contemplative expression, fitting a questioning or puzzled mood. He is not looking at armour or a screen.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 806,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:5723452",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a stock photograph of a woman posing with a puzzled, thinking expression (finger on chin) surrounded by graphic question marks; she looks directly at the camera, not at a screen or armor.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "cost": 600,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:4009695",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a real girl with a puzzled expression looking directly at the camera, not at a screen or armour. It is a stock photograph with graphic overlays.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "cost": 692,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5240861",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a woman in a thoughtful, puzzled pose looking up at a blank blue background, not a screen or armour. It is a standard stock photograph.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 1301,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "3905604",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in a classic thoughtful pose with his hand on his chin and a puzzled expression, looking up rather than at a screen or armor. It is a realistic stock photograph.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 1040,
+   "call": true
+  },
+  {
+   "index": 16,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "36763540",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph of a woman in a classic thoughtful pose with her hand on her chin, matching the core and subject claims. She is not looking at a screen or armour.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 1165,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a stranger thing is coming",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "37685632": 3,
+    "26806368": 1,
+    "34582652": 1,
+    "6537028": 0,
+    "4248456": 0,
+    "pixabay:24413": 0,
+    "34618735": 2,
+    "7780091": 0,
+    "6538182": 0,
+    "5561379": 0,
+    "4061896": 1,
+    "pixabay:24412": 1,
+    "28309301": 3,
+    "854276": 0,
+    "1086536": 1,
+    "9465814": 1,
+    "7566507": 1,
+    "37709386": 2
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 2559
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "37685632",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a single armored knight walking in a street parade, not fighting, and the image is clearly a photograph or video frame, not a manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 344,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "28309301",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a single person in armor climbing a stone wall, not two knights fighting. It is a live-action video clip, not a manuscript.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "cost": 301,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34618735",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a static museum display of a single suit of armor, not a fight between two knights, and it is a photographic image, not a manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "cost": 445,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "37709386",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show people in medieval-style costumes walking in a street during a festival parade, not armoured knights fighting. It is a photographic video frame, not a manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 266,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "26806368",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a close-up of a golden coffin-like object, with no knights or manuscript elements present.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 346,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34582652",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a single cosplayer in armor posing at a convention, not two knights fighting, and it is clearly a photograph, not a manuscript.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 355,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6537028",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows two modern fencers in white protective gear standing in a gym, not armoured knights. It is a photographic video frame.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 366,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "4248456",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows three frames of a video clip featuring a spinning circular saw blade cutting wood, with no knights or manuscript elements present.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 597,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6538182",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows two people in modern fencing gear (masks and white uniforms), not armoured knights, and is a photographic video frame.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 316,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a stranger thing is coming",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "chicago:80905": 1,
+    "pixabay:6722865": 1,
+    "chicago:11782": 1,
+    "commons:504006": 1,
+    "chicago:198027": 1,
+    "commons:47793679": 2,
+    "chicago:76969": 1,
+    "63852": 1,
+    "commons:75758764": 3,
+    "chicago:71521": 2,
+    "commons:69753465": 3,
+    "chicago:71519": 2,
+    "chicago:15716": 2,
+    "chicago:20233": 2,
+    "commons:18792478": 2,
+    "commons:69756922": 2,
+    "openverse:e54ca5bf-c780-4b6f-a799-96f8a7c6d698": 1,
+    "commons:10516737": 2,
+    "chicago:77005": 1
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 1480
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:75758764",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The image depicts one armoured knight and a lion fighting a dragon, not two knights. It is clearly a medieval manuscript illumination with background text.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 784,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:69753465",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The left figure is a giant in a tunic, not a knight, making the 'two armoured knights' claim false. The style and gold background confirm it is a manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 732,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:47793679",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The image shows armored knights on horseback, not on foot. It is a medieval manuscript illumination featuring Latin text.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 1403,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:71521",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "artwork",
+    "why": "The image is a medieval manuscript illumination depicting a religious scene with robed figures, not armoured knights.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 499,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:71519",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "artwork",
+    "why": "The image is a manuscript illumination from a Book of Hours depicting the Visitation (two women, one with a halo), with no knights or armor present.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 590,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:80905",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The image is a medieval manuscript illumination showing an armored knight attacking a cleric (Thomas Becket), not two knights fighting each other.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 604,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:6722865",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image shows two articulated toy knights or miniatures in armor fighting against a black background, which fits the 'toy' category under cg.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 864,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:11782",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "artwork",
+    "why": "The image is a medieval manuscript illumination showing religious figures in robes inside a historiated initial, not armoured knights.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 730,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:504006",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The image shows a single knight standing peacefully between a cleric and a workman, not two knights fighting. It is clearly a medieval manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 613,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:198027",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "artwork",
+    "why": "The image shows a page from a medieval manuscript featuring an illuminated religious scene with robed figures, not armoured knights.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 655,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "look_tied": [
+    "commons:75758764",
+    "commons:69753465"
+   ],
+   "look_order": [
+    "commons:75758764",
+    "commons:69753465"
+   ],
+   "cost": 493,
+   "call": true
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "focus": "a stranger thing is coming",
+   "focus_box": [
+    0.345,
+    0.245,
+    0.575,
+    0.625
+   ],
+   "focus_what": "armed men entering",
+   "cost": 355,
+   "cache_hit": null,
+   "focus_dropped": "region",
+   "focus_box_used": null
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "both laboratories measured walking on a treadmill",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "9777588": 0,
+    "4367637": 0,
+    "8460391": 0,
+    "38226254": 2,
+    "34708308": 0,
+    "8460289": 0,
+    "36885369": 0,
+    "4468823": 0,
+    "9777592": 0,
+    "6538187": 0,
+    "4945121": 0,
+    "9777601": 0,
+    "32115634": 0,
+    "32115643": 0,
+    "3875590": 0,
+    "4920807": 0,
+    "6286153": 0,
+    "6114386": 0,
+    "6286155": 0,
+    "4075980": 0
+   },
+   "calls": 4,
+   "cache_hits": 0,
+   "cost": 2295
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38226254",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a person wearing armor walking on a treadmill in a room that looks like a garage or home gym (a motorcycle is visible in the background), not a laboratory setting.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 359,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9777588",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in regular dark clothing (jacket/tracksuit) running on a treadmill in a gym environment, not wearing armour. The caption identifies the location as a gym, not a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 1989,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "4367637",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a person's legs walking on a treadmill, wearing dark pants and boots, not armor. The setting appears to be a gym, not a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 700,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8460391",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The person is wearing white PPE (not armour) and is walking on the floor next to an empty treadmill, not on it. The room contains medical/lab equipment.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 479,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34708308",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show gym equipment in a dark, blue-tinted setting, consistent with a gym workout, not a laboratory. There is no person in armor visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 251,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6538187",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a person in fencing gear practicing moves in a hall, not walking on a treadmill. No treadmill or laboratory setting is visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 387,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8460289",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a shirtless man walking on a treadmill in a clinical or medical testing room (exercise/gait lab) observed by staff in scrubs; there is no armour present.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 657,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "36885369",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a person in athletic wear (tracksuit) in a gym setting using a cable/weight machine, not a person in armor walking on a treadmill in a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 655,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "4468823",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a person in athletic wear running on a treadmill in a gym setting, not wearing armour, and the background is clearly a gym, not a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 552,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9777592",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "unsure",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a close-up of a person's legs and feet walking on a treadmill. The person is wearing regular athletic shoes and pants, not armour. The background shows a floor with markings, which could be a laboratory or a gym, making the specific setting unsure based on visual evidence alone.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 639,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "4945121",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a person's bare legs and sneakers walking on a treadmill in a gym environment, not wearing armour and not in a laboratory setting.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 540,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "both laboratories measured walking on a treadmill",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "31000554": 0,
+    "6455844": 0,
+    "5327545": 0,
+    "5941988": 0,
+    "6455836": 0,
+    "36080213": 0,
+    "8460233": 0,
+    "6455847": 0,
+    "6455910": 0,
+    "6285182": 0,
+    "6285195": 0,
+    "9643411": 0,
+    "6455929": 0,
+    "3757957": 0,
+    "4944970": 0,
+    "31000553": 0,
+    "6455841": 0,
+    "6285199": 0,
+    "31012865": 0,
+    "6455955": 0
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 1147
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "31000554",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in athletic wear (not armour) on a treadmill. The setting is a gym with exercise equipment and windows, not a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 199,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6455844",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The man wears sportswear, not armour, and the background is a gym with boxing bags, not a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 346,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5327545",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The person is wearing athletic wear, not armour, and the setting resembles a gym rather than a laboratory, though a treadmill is clearly visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 621,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5941988",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a fencer standing in a gym with squat racks, not walking on a treadmill in a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 586,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6455836",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The person is wearing sportswear, not armor, and the background shows a gym with punching bags, not a laboratory. It is a photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 632,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9643411",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows two wheelchair fencers in an indoor sports arena, not a laboratory, and there is no treadmill or person walking on one.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 267,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "36080213",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in a tank top on a treadmill in a gym-like setting, not in armour or a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 577,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8460233",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a shirtless man with medical electrodes on a treadmill in a clinical setting, not a person in armour.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 568,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6455847",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in sportswear running on a treadmill in a gym, not a person in armour in a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 576,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6455910",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The person is wearing activewear, not armour, and the blurred background suggests a gym rather than a laboratory, though a treadmill is clearly visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 638,
+   "call": true
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6285182",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a woman in casual athletic wear, not armour, using a treadmill in a bright room with large windows that resembles a gym rather than a laboratory.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 634,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "the fight itself was not measured",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "33091810": 1,
+    "pixabay:7442235": 2,
+    "pixabay:7405192": 2,
+    "1534133": 1,
+    "pixabay:978558": 2,
+    "pixabay:2144638": 2,
+    "350784": 2,
+    "28909679": 1,
+    "38125782": 2,
+    "pixabay:3601894": 2,
+    "pixabay:3319865": 2,
+    "11952611": 2,
+    "commons:18802689": 1,
+    "38125780": 2,
+    "37082106": 1,
+    "pixabay:3181275": 2,
+    "pixabay:2826704": 2,
+    "pixabay:7512342": 2,
+    "pixabay:3668181": 2,
+    "349455": 2
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 1770
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:7442235",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image depicts a static figure in full plate armor with no measuring equipment visible. The lighting, texture, and 'wallpaper' tags suggest it is a 3D render or digital artwork.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 483,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:7405192",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image shows a static figure in full plate armor against a stylized, smoky background. No measuring equipment is visible. The lighting, textures, and composition strongly suggest a 3D render or digital artwork.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 403,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:978558",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image shows a static, empty suit of armor (a museum exhibit) against a plain dark background. There is no living person inside it, and no measuring equipment is visible.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 476,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:2144638",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a figure in full plate armor standing still. No measuring equipment is visible. Realistic lighting, reflections, and depth of field indicate it is a photograph.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 397,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "350784",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a monochrome photograph showing a suit of armor standing still against a plain background, with no measuring equipment visible.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 409,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "33091810",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph showing a person in medieval armor standing still outdoors. No measuring equipment is visible in the frame.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 368,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "1534133",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a person in full plate armor standing still in an outdoor setting, likely a fair. No measuring equipment is visible. It is a photograph.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 312,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "28909679",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows people in medieval civilian clothing at a reenactment event, not armoured fighters. No measuring equipment is visible. It is a real-world photograph.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 343,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38125782",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph showing the back of a person wearing a metal helmet and chainmail armor. The subject is standing still, and there are no measuring devices visible in the frame.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 342,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38125780",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph showing a person in historical armor standing still, with no measuring equipment visible.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 313,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:3668181",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in plate armor holding a sword standing still in front of a stone wall. No measuring equipment is visible. It is a photograph.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 308,
+   "call": true
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "look_tied": [
+    "pixabay:2144638",
+    "350784",
+    "38125782",
+    "38125780",
+    "pixabay:3668181"
+   ],
+   "look_order": [
+    "pixabay:2144638",
+    "350784",
+    "pixabay:3668181",
+    "38125782",
+    "38125780"
+   ],
+   "cost": 391,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "no measurement of a fight was found",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "commons:52386024": 2,
+    "6550462": 1,
+    "pixabay:8504193": 1,
+    "commons:52386048": 2,
+    "pixabay:196575": 1,
+    "5553625": 0,
+    "1667434": 0,
+    "commons:52386040": 2,
+    "6282115": 0,
+    "7303393": 0,
+    "commons:52386367": 2,
+    "1370294": 0,
+    "9572697": 0,
+    "commons:52386536": 2,
+    "commons:52386261": 2,
+    "pixabay:1850170": 0,
+    "commons:52386115": 2,
+    "commons:52386299": 2,
+    "7128754": 1,
+    "commons:52386131": 1
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 1974
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386024",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph of a blank page in a book, placed next to a color control palette and ruler. It does not show a digital search result, a person searching, or an empty archive.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 603,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386048",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page of a book or manuscript next to a color control palette, not a search interface or a person searching.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 1395,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386040",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page of a book with a ruler and color chart, not a search result, person, or empty archive.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 582,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386367",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page of a book next to a color calibration chart, not a search result, a person, or an empty archive.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 1193,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386536",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page in a book, matching c1. It does not depict an empty search result interface (core), a person searching (c2), or an archive setting (subject). The medium is a photograph of a physical object.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 748,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6550462",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a card catalog drawer pulled open and filled with index cards; there is no person, no empty drawer, and no empty search result visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 627,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:8504193",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "cg",
+    "why": "The image shows a minimalist white shelf mounted on a wall with a few small objects on the right side. It fits the description of an empty shelf but does not show a search result interface, a person searching, or an archive. The perfect lighting and geometry suggest it is a 3D render.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 1723,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:196575",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a wooden shelving unit filled with various items like papers, boxes, and tape. It is not empty, does not show a digital search result, and no person is visible.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 1739,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5553625",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a person looking through papers, but there is no empty search result, blank page, or empty archive visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 746,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "1667434",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image is a black and white photograph showing a pair of sneakers on a dark wooden shelf with empty shelves above, not a digital search result, a person searching, or an archive.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 778,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6282115",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a person examining a blank sheet of paper in a library. The background shelves are filled with books, so the archive is not empty, and there is no digital search result interface visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 854,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "7303393",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows shelves densely packed with stacks of books and papers, with no empty shelves, search results, or people visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 712,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "1370294",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows closed filing cabinets with books on top; there is no person, no open empty drawer or shelf, and no visible search result interface.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 898,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "no measurement of a fight was found",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "commons:52386084": 1,
+    "pixabay:2156974": 3,
+    "commons:52386418": 1,
+    "commons:52386202": 1,
+    "6549926": 1,
+    "commons:52386276": 1,
+    "commons:52386017": 1,
+    "8035298": 1,
+    "commons:52386182": 1,
+    "commons:52386193": 3,
+    "pixabay:1633406": 1,
+    "17314093": 2,
+    "8369204": 0,
+    "pixabay:4461069": 1,
+    "commons:52386504": 3,
+    "pixabay:581128": 1,
+    "commons:52386063": 3,
+    "9572666": 0,
+    "commons:52386075": 1,
+    "commons:52386462": 1
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 3562
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:2156974",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows an open old book with blank pages, which matches 'blank page' but not a search result, a person searching, or an archive.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 436,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386193",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page of a book next to a color calibration chart, not a search result, person, or empty archive.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 1326,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386504",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page from a book or manuscript, indicated by the color control palette on the left. It is not a search result, nor does it show a person searching or an empty archive room.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 565,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386063",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page of a book next to a color calibration chart, not a search result, person, or empty archive.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 1972,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "17314093",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows an open book with blank pages lying on old newspapers. It does not depict a digital search result, a person searching, or an archive, but it clearly features a blank page.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 779,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386084",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image displays a blank page of an open book alongside a color calibration chart, fitting the description of a blank page but not a search result, a person searching, or an empty archive.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 505,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386418",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page of an old book next to a color control chart, which matches 'blank page' but does not show a search result, a person searching, or an empty archive.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 496,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:52386202",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a blank page of a book or manuscript with a color control palette, fitting the description of a blank page (c1) but not a digital search result, a person searching, or a room-sized archive.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 646,
+   "call": true
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6549926",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows an archive aisle with shelves completely full of storage boxes. There are no people, no empty drawers or blank pages, and no visual representation of a search result.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 960,
+   "call": true
+  },
+  {
+   "forecast": 464208,
+   "cap": 400000,
+   "slots": 30,
+   "per_slot": 15473,
+   "cutoff_slot": 25
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "everyone repeats the claim about the knight",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "8731387": 0,
+    "5270726": 0,
+    "pixabay:329737": 0,
+    "5762303": 0,
+    "6948622": 0,
+    "3114602": 0,
+    "8847406": 0,
+    "29096782": 0,
+    "8716592": 0,
+    "6951896": 0,
+    "3251897": 0,
+    "7685214": 0,
+    "7467737": 0,
+    "6616741": 0,
+    "9365371": 0,
+    "8141643": 0,
+    "6951978": 0,
+    "6258792": 1,
+    "6339864": 0,
+    "6952205": 0
+   },
+   "calls": 4,
+   "cache_hits": 0,
+   "cost": 2243
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6258792",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a person gesturing (performing a magic trick) with their hand, but no audience is visible, and the person's face/mouth is not shown to confirm speaking.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 1807,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8731387",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image displays three frames from a video showing a woman standing at a podium and speaking to an audience, with the backs of listeners visible in the foreground.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 699,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5270726",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows three frames of a person gesturing with their hands, consistent with speaking or explaining something, but no other people are visible in the frame to listen.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 647,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:329737",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image is a digital silhouette illustration depicting a person speaking at a podium to an audience.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 658,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5762303",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a man sitting and speaking/gesturing to a group of people who are seated and listening to him in an indoor setting.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 586,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6948622",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a man with glasses speaking and gesturing to another person in the foreground.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 569,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "3114602",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a man speaking and gesturing to two women who are listening to him. It is a photographic video clip.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 525,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8847406",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a man standing at a podium holding a paper, clearly addressing an audience (speaking/gesturing), but the audience itself (other people listening) is not visible in the shot.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 629,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "29096782",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a man seated at a table facing an audience, with mouth open in speech and listeners visible from behind; the setting and lighting indicate a real-world video still.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 513,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8716592",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a person holding a microphone and addressing a seated audience who are looking at them.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 463,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6951896",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The frames show a 3D rendered man speaking at a podium and gesturing to an audience whose backs are visible in the foreground.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 544,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "everyone repeats the claim about the knight",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": null,
+   "calls": 2,
+   "cache_hits": 0,
+   "cost": 645,
+   "refused": "GatewayError: повторы исчерпаны: 503 (bad_gateway, request_id=err_e2d85851-8b5e-4ee5-b8f9-78cf26225b06)"
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5257760",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in the center gesturing and speaking to two other men who are facing him and listening. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 527,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "7647923",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "unsure",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in a suit gesturing as if giving a presentation, but the audience he is speaking to is not visible in the frame.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 609,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5710988",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man sitting in the center of a circle of chairs, gesturing with his hands as if speaking, while other people sit around him facing him, appearing to listen. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 745,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "7647993",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man standing and gesturing as if speaking to an audience, with other people present and looking at him. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 693,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "7092613",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man speaking and gesturing in front of a whiteboard, but no other people are visible in the frame.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 1272,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "4427617",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image clearly shows a man in a suit speaking to two other people who are facing him, and it is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 451,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5711375",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man gesturing and speaking to a seated group of people who are looking at him, captured in a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 645,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "7495653",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in a striped shirt gesturing and speaking to a group of people who are looking at him and listening. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 687,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "4865512",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph showing a man sitting with books in front of an audience, appearing to speak or discuss something while others listen.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 795,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8348624",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man holding a microphone and speaking to a seated group of people in an indoor setting, captured as a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 657,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "everyone repeats the claim about the knight",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "6150521": 0,
+    "8345974": 0,
+    "9275222": 0,
+    "8345973": 0,
+    "4347481": 0,
+    "3184328": 0,
+    "5710972": 0,
+    "5256997": 0,
+    "35064535": 0,
+    "29461099": 0,
+    "30726415": 0,
+    "8348463": 0,
+    "7683744": 0,
+    "8761536": 0,
+    "4486796": 0,
+    "8591616": 0,
+    "8068812": 0,
+    "34410730": 0,
+    "6712650": 0,
+    "8730787": 0
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 1174
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6150521",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "A man in a hoodie stands facing seated audience members in a loft-like room; the image is a photographic capture with natural lighting and depth of field.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 402,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8345974",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a woman speaking into a microphone while others sit and listen, captured as a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 560,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9275222",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a speaker on stage addressing an audience seated in rows, consistent with a conference presentation; it is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 406,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8345973",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a woman holding a microphone and speaking to a man who is listening, with another person in the background also observing. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 686,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "4347481",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man gesturing and speaking to two other people at a table who are looking at him, captured in a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 711,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "3184328",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man presenting to an audience, confirming he is speaking and they are listening. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 682,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5710972",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man sitting in the center of a circle of chairs, gesturing as if speaking, while the surrounding people face him and listen. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 690,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "5256997",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man seated and speaking to three others who are oriented toward him, indicating active listening. The visual style is a realistic photograph with natural lighting and depth of field.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 486,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "35064535",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man standing in front of a large audience in an auditorium, appearing to lead a session or speak, while the audience listens and raises their hands. It is a realistic photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 530,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "29461099",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man gesturing as if speaking to a woman in the background who appears to be listening, captured in a black and white photograph.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 690,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "everyone repeats the claim about the knight",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "gen:4d4fd39e9051876800a5": 3
+   },
+   "calls": 1,
+   "cache_hits": 0,
+   "cost": 227
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "gen:4d4fd39e9051876800a5",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "Colored illustration of a knight surrounded by a gesturing crowd.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 734,
+   "call": true
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "focus": "everyone repeats the claim about the knight",
+   "focus_box": [
+    0.02,
+    0.33,
+    1.0,
+    0.98
+   ],
+   "focus_what": "crowd of people talking and gesturing",
+   "cost": 599,
+   "cache_hit": null,
+   "focus_confirm": true,
+   "confirm_cost": 342,
+   "focus_box_used": [
+    0.02,
+    0.33,
+    1.0,
+    0.98
+   ]
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a French marshal six hundred years ago",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "26806368": 1,
+    "9466313": 1,
+    "9466648": 2,
+    "pixabay:24411": 0,
+    "27814728": 1,
+    "9466657": 2,
+    "34618735": 3,
+    "9466653": 1,
+    "27814724": 2,
+    "9466309": 1,
+    "9466535": 1,
+    "9465975": 1,
+    "9466541": 1,
+    "9466646": 1,
+    "7894788": 1,
+    "9466645": 1,
+    "6728586": 1,
+    "9466649": 1,
+    "1086536": 0,
+    "17062603": 2
+   },
+   "calls": 4,
+   "cache_hits": 0,
+   "cost": 3005
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34618735",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "object",
+    "why": "The frames show a static suit of armor with a fleur-de-lis surcoat on display in a museum. There is no horse visible and no mounting action is occurring.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "cost": 406,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466648",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a modern man in a white shirt and riding helmet sitting on a horse, not a French marshal or knight in armor mounting a horse. It is a live-action video clip, not a manuscript illumination.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 545,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466657",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a live-action video of a man in a 19th-century style military uniform (white tunic, dark hat) riding a horse and raising a sword, not a knight in armor mounting a horse. It is clearly a photograph/video frame, not a manuscript illumination.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 876,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "27814724",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows video frames of a golden statue of an armored figure standing under a gothic archway, not mounting a horse, and it is a photographic capture rather than a manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "cost": 668,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "17062603",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows frames from a video of a statue depicting a mounted figure on a plinth, not a real person mounting a horse or a manuscript illumination.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 825,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "26806368",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a golden object (likely a coffin or armor piece) sitting on a table in a dark setting, with no knight, horse, or manuscript illumination visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 274,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466313",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a man in a 19th-century style military uniform already riding a horse outdoors, not mounting it, and he is not wearing armour. It is a photographic video frame, not a manuscript illumination.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 675,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:24411",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "cg",
+    "why": "The image is a 3D cartoon render of a warrior on foot giving a thumbs up, not a mounted knight or French marshal in armor.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 828,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "27814728",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a statue of a knight in armor standing in a niche on a building facade, not mounting a horse, and it is a real-world video clip, not a manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "cost": 430,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466653",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show live-action footage of soldiers in cloth uniforms sitting on horses, not knights in armor mounting horses, and it is clearly a modern video, not a manuscript illumination.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 547,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466309",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a live-action reenactment of Napoleonic-era soldiers and a cavalryman on a horse. The cavalryman is already mounted and riding, not mounting, and wears a cloth uniform, not armour. It is not a manuscript illumination.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 635,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466535",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a live-action video of soldiers in historical (likely 18th/19th century) uniforms already riding horses, not mounting them, and they are not wearing medieval knight armour.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 539,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9465975",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a live-action video of a man in a historical cloth uniform (resembling Napoleonic era) holding a musket and a sword near white tents. There is no horse, no armor, and it is clearly a photograph/video, not a manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "cost": 559,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466541",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a live-action video clip of men in historical military uniforms (resembling 19th-century cavalry) riding horses in a field. They are not wearing armor, not mounting the horses, and the image is not a manuscript illumination.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 585,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a French marshal six hundred years ago",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "commons:1970955": 3,
+    "pixabay:883922": 3,
+    "chicago:11782": 1,
+    "commons:1970961": 3,
+    "chicago:198027": 2,
+    "pixabay:2651812": 2,
+    "commons:123215": 3,
+    "pixabay:962560": 1,
+    "pixabay:2651810": 2,
+    "chicago:71521": 1,
+    "commons:69756922": 3,
+    "chicago:71519": 1,
+    "pixabay:3116865": 2,
+    "chicago:20233": 1,
+    "commons:10516737": 2,
+    "openverse:e54ca5bf-c780-4b6f-a799-96f8a7c6d698": 0,
+    "commons:3208455": 2,
+    "chicago:77005": 0,
+    "pixabay:211543": 2
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 1203
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:1970955",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The image is a medieval manuscript illumination (Chronicon Pictum) showing the Battle of Posada. While mounted knights are visible, the central figure identified in the caption is Charles Robert of Anjou, King of Hungary, not a French marshal.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 439,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:883922",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image shows a 3D rendered or digitally isolated figure of a knight in full plate armor riding an armored horse against a plain background, not a manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 939,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:1970961",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The image is a medieval manuscript illumination (Chronicon Pictum) depicting the Battle of Posada in 1330. While it shows mounted knights, the central figure being ambushed is Charles Robert of Anjou, King of Hungary, not a French marshal.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 436,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:123215",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The image is a manuscript illumination (Chronicon Pictum) depicting the Battle of Posada; while mounted knights are visible, there is no specific visual evidence identifying any figure as a French marshal.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 421,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:69756922",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "artwork",
+    "why": "The image shows a knight on foot fighting a giant, not mounting a horse. The style and caption confirm it is a medieval manuscript illumination.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 608,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:11782",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "artwork",
+    "why": "The image is a medieval manuscript illumination (a historiated initial) depicting a kneeling saint with a halo praying to Christ, not a marshal or a mounted knight.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 330,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:198027",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "yes",
+     "subject": "no"
+    },
+    "medium": "artwork",
+    "why": "The image is a manuscript illumination depicting the Adoration of the Magi (a seated Virgin and Child with three standing kings), not a marshal in armour or a mounted knight.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 206,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "look_tied": [
+    "commons:1970955",
+    "commons:1970961",
+    "commons:123215",
+    "commons:69756922"
+   ],
+   "look_order": [
+    "commons:69756922",
+    "commons:123215",
+    "commons:1970955",
+    "commons:1970961"
+   ],
+   "cost": 333,
+   "call": true
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "focus": "a French marshal six hundred years ago",
+   "focus_box": [
+    0.305,
+    0.465,
+    0.515,
+    0.685
+   ],
+   "focus_what": "kneeling nobleman or magus in purple robe",
+   "cost": 649,
+   "cache_hit": null,
+   "focus_confirm": false,
+   "confirm_cost": 216,
+   "focus_dropped": "confirm",
+   "focus_box_used": null
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "training to keep breathing steady",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "pixabay:24412": 1,
+    "38103942": 1,
+    "pixabay:233550": 1,
+    "6538189": 0,
+    "10340372": 0,
+    "9466965": 1,
+    "pixabay:24413": 0,
+    "6832373": 0,
+    "38104097": 2,
+    "pixabay:185802": 0,
+    "6078259": 0,
+    "6536349": 0,
+    "6536658": 0,
+    "28309301": 3,
+    "9465980": 1,
+    "pixabay:143431": 0,
+    "6537015": 0,
+    "6077693": 0,
+    "pixabay:185801": 1,
+    "38104090": 1
+   },
+   "calls": 4,
+   "cache_hits": 0,
+   "cost": 2540
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "28309301",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a person in armor climbing a stone wall, which fits the description of a knight training or exercising (c1, subject). However, the specific action of 'controlled breathing' is not visible; the person is climbing, and we cannot see their face or chest to judge breathing (c2), making t",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 1200,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38104097",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows Roman legionary reenactors (indicated by armor style and caption), not a knight. While people in armor are present and appear to be drilling or standing in formation (c1), specific breathing exercises are not visible at this distance, and the subject is historically inaccurate for th",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 937,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:24412",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image shows a 3D cartoon knight running. There is no visual indication of breathing exercises or steady breathing, only a running action.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 380,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38103942",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows Roman soldier reenactors (not a knight) performing a drill with a wooden structure. While they are training/exercising in armor, specific controlled breathing is not visible at this distance, and the subject is historically Roman, not a medieval knight.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 511,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:233550",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "cg",
+    "why": "The image shows a static 3D cartoon knight standing with hands on hips against a blue background; there is no visible training activity or breathing.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 371,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6538189",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a fencer in a modern fencing suit and mask, not a knight in armour, and breathing is not visibly depicted in the frames.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 746,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "10340372",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "unsure",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a person in fencing gear (mask and jacket) holding a foil, not a knight in armour. Breathing is not clearly visible through the mesh mask.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 551,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6832373",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows people in modern fencing gear (white uniforms and masks) practicing fencing, not knights in armour. Breathing cannot be visibly confirmed from the frames.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 875,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6536658",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "unsure",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The video frames show a modern fencer in white fencing gear (uniform and mask) practicing a lunge against a dummy, not a knight in armour. While the person is drilling, the specific description of a knight and armour is incorrect. Breathing steadiness is not clearly visible in the static frames.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 1706,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "6537015",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a fencing mask and sword resting statically on a bench; there is no person, knight, or active training visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 780,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "training to keep breathing steady",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "8116144": 0,
+    "28909679": 1,
+    "13172739": 3,
+    "34732744": 1,
+    "34732757": 1,
+    "34732752": 0,
+    "39959043": 1,
+    "pixabay:777755": 2,
+    "pixabay:211229": 3,
+    "1534133": 0,
+    "pixabay:4561687": 3,
+    "pixabay:962560": 2,
+    "31474665": 1,
+    "2514316": 3,
+    "pixabay:3601894": 1,
+    "34732734": 1,
+    "pixabay:3319865": 1,
+    "pixabay:978558": 1,
+    "334202": 1,
+    "pixabay:602103": 2
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 2159
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "13172739",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "unsure",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a knight in armor at a reenactment event with spectators, not a controlled breathing training session; breath control is not visually verifiable.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 208,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:211229",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows armored individuals resting or watching behind a wooden barrier, not actively training. The central figure wears a full helmet, making any breathing invisible.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 407,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:4561687",
+   "verify": {
+    "claims": {
+     "core": "unsure",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows two individuals in medieval armor sparring, confirming the subject of a training knight. However, breathing is an internal physiological state not visible in a still photograph, especially with full-face helmets. The image is a realistic photograph.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.5,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 447,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "2514316",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a group of reenactors, including a man in knight's armor, running on a beach. While they are physically active, there is no visual evidence of specific breathing exercises or visible breath.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 397,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:777755",
+   "verify": {
+    "claims": {
+     "core": "unsure",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows two people in knight armor standing outdoors. While knights are visible, their faces are completely covered by helmets, making it impossible to see their breathing, and a static image cannot confirm specific breathing training.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.5,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 390,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "8116144",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "Knights in armor are visible, but breathing cannot be observed through full helmets in a still image.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 661,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "28909679",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows people in medieval costumes at a reenactment event standing and sitting, not training or performing breathing exercises.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 351,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34732744",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a Viking reenactor in chainmail and a helmet at an outdoor event touching his face, with no visual evidence of active training or controlled breathing.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 771,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34732757",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a Viking battle reenactment with two fighters in active combat, not a knight training with a focus on breathing. Breathing is not visibly depicted.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 675,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34732752",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a viking reenactor at a public event rather than a knight explicitly training. Breathing is an internal process not visible in a still photo, but an armored warrior figure in a combat stance is clearly present.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 515,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34732734",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a Viking reenactor standing at a history festival, not actively training or displaying visible breathing control.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 442,
+   "call": true
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "334202",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a historical battle reenactment with participants lying on the ground in a field, not a knight training or demonstrating controlled breathing.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 421,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "why train if the fight lasted minutes",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "pixabay:978558": 3,
+    "pixabay:211229": 1,
+    "pixabay:2826704": 3,
+    "pixabay:962560": 2,
+    "pixabay:7405192": 3,
+    "pixabay:7442235": 3,
+    "pixabay:930798": 2,
+    "pixabay:2823663": 3,
+    "pixabay:3449325": 2,
+    "pixabay:602103": 3,
+    "pixabay:3601894": 3,
+    "pixabay:2833623": 3,
+    "pixabay:2727075": 3,
+    "289831": 2,
+    "38125782": 2,
+    "pixabay:6881218": 1,
+    "33091810": 1,
+    "38125780": 2,
+    "11952611": 2
+   },
+   "calls": 3,
+   "cache_hits": 0,
+   "cost": 2110
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:978558",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a close-up of an empty suit of armor (helmet and breastplate) against a dark background. No person is visible inside the armor, so there are no signs of exhaustion, breathing, or fatigue.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 461,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:2826704",
+   "verify": {
+    "claims": {
+     "core": "unsure",
+     "c1": "yes",
+     "c2": "unsure",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a man in medieval armor standing in a forest. While he appears to be resting or pausing, his expression is calm and contemplative rather than clearly exhausted or tired. It is a staged photograph.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.5,
+    1.0,
+    1.0,
+    0.5
+   ],
+   "cost": 849,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:7405192",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The knight's bowed head and posture clearly convey exhaustion and resting. The lighting, armor textures, and atmospheric background indicate a 3D render or digital artwork.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 396,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:7442235",
+   "verify": {
+    "claims": {
+     "core": "unsure",
+     "c1": "unsure",
+     "c2": "unsure",
+     "subject": "unsure"
+    },
+    "medium": "cg",
+    "why": "The image shows a knight in full plate armor standing upright against a smoky background. The helmet completely hides the face, and the posture is rigid rather than slumped, providing no clear visual evidence of exhaustion, heavy breathing, or tiredness. The lighting, texture, and source caption ind",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 613,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:2823663",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "object",
+    "why": "The image shows an empty suit of plate armor against a plain background, not a living person or a tired knight.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 632,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:211229",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows individuals in medieval armor leaning heavily on a wooden barrier, appearing to rest or recover, which aligns with a tired knight pausing. It is a real photograph of a historical reenactment.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 411,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:962560",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a person in armor sitting upright on a horse with a calm, neutral expression, showing no visible signs of exhaustion, heavy breathing, or fatigue.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 779,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:2727075",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a knight sitting upright on a horse at a tournament or reenactment. The knight's face is fully covered by a helmet, and their posture is alert, providing no visual evidence of exhaustion, heavy breathing, or tiredness.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 776,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38125782",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows only the back of a person in a helmet and chainmail. Since their face and body language are not visible, it is impossible to determine if they are tired, exhausted, or breathing heavily.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 405,
+   "call": true
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38125780",
+   "verify": {
+    "claims": {
+     "core": "unsure",
+     "c1": "unsure",
+     "c2": "unsure",
+     "subject": "unsure"
+    },
+    "medium": "photo",
+    "why": "The image shows a person in armor from behind, but their face and specific body language are not visible, so it is impossible to confirm if they look tired, exhausted, or are breathing heavily.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.5,
+    0.5,
+    1.0,
+    0.5
+   ],
+   "cost": 463,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a common myth about knights being introduced",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "34618735": 3,
+    "pixabay:233550": 1,
+    "39157259": 2,
+    "37685632": 2,
+    "28309301": 3,
+    "27814724": 2,
+    "pixabay:190865": 2,
+    "pixabay:24410": 2,
+    "pixabay:146380": 2,
+    "pixabay:24412": 2,
+    "pixabay:56075": 2,
+    "pixabay:24413": 2,
+    "pixabay:233544": 1,
+    "9465985": 1,
+    "38103941": 1,
+    "pixabay:140969": 1,
+    "37685634": 3,
+    "pixabay:140970": 1,
+    "pixabay:233551": 2,
+    "pixabay:233534": 2
+   },
+   "calls": 4,
+   "cache_hits": 0,
+   "cost": 4656
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34618735",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a museum display of a suit of armor (mannequin) with polished metal plates and a tabard, rather than a living person.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 478,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "28309301",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows frames from a live-action video clip of a person in medieval armor (appearing to be chainmail or brigandine, not full polished plate) climbing a stone wall, visually representing a knight.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 446,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "37685634",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show people in medieval-style tunics and cloaks at a festival, but no one is wearing plate armor or knightly gear.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 646,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "39157259",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "object",
+    "why": "The image shows a terracotta warrior statue in a museum exhibit, not a knight in armor.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 583,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "37685632",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a real-life outdoor scene of a parade where a person is wearing shiny, full plate armor, clearly depicting a knight.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 241,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:233550",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image is a 3D render of a cartoon-style knight wearing a full suit of shiny, polished plate armor against a solid blue background.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 358,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38103941",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a real-life historical reenactment with people wearing helmets and tunics or chainmail, not full polished plate armor.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 302,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a common myth about knights being introduced",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "38125780": 3,
+    "1534133": 1,
+    "commons:17820690": 3,
+    "pixabay:3449325": 2,
+    "34732752": 1
+   },
+   "calls": 1,
+   "cache_hits": 0,
+   "cost": 629
+  },
+  {
+   "index": 25,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38125780",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a person from behind wearing a metal helmet and upper body armor with brass fittings. The realistic lighting, textures, and shallow depth of field with a blurred background confirm it is a photograph.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 474,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:17820690",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph showing several suits of polished plate armor on display stands in a museum, representing knights.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 907,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:3449325",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The person is wearing a great helm and shoulder armor over a cloth tunic, not full plate armor, and the metal appears dull rather than polished. The image is a real photograph with a blurred background.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    0.0
+   ],
+   "cost": 883,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "1534133",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph of a person wearing dark, weathered plate armor at an outdoor event; the armor is clearly not polished metal.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 374,
+   "call": true
+  },
+  {
+   "index": 25,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "34732752",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a reenactor wearing chainmail and a helmet with lamellar arm guards, not a knight in full plate armor; the metal is matte/dull, not polished.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 217,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a knight hoisted onto a horse by a crane",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "30736363": 2,
+    "1534133": 0,
+    "commons:7436641": 1,
+    "pixabay:6907859": 2,
+    "30736362": 2
+   },
+   "calls": 1,
+   "cache_hits": 0,
+   "cost": 446
+  },
+  {
+   "index": 26,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "30736363",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows an armored figure already seated on a horse in an outdoor landscape. There is no crane or hoist visible, and the figure is not in the process of mounting.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 684,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:6907859",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a knight in full armor already riding a horse covered in a red cloth. There is no crane or hoist visible, and the knight is not in the process of mounting.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 747,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "30736362",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows an armored warrior riding a horse in a landscape, but there is no crane or hoist visible, and the knight is already seated on the horse rather than being lifted onto it.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 1004,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:7436641",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "artwork",
+    "why": "The image is a medieval manuscript drawing depicting two knights riding a single horse (the Knights Templar emblem). There is no crane or hoist visible, and the knights are already seated on the horse, not being hoisted onto it.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 712,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "1534133",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a person in full plate armor standing at an outdoor event with an ice cream truck in the background. There is no horse, crane, or mounting action visible.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 369,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "focus": "a knight hoisted onto a horse by a crane",
+   "focus_box": null,
+   "focus_what": null,
+   "cost": 306,
+   "cache_hit": null,
+   "focus_box_used": null
+  },
+  {
+   "index": 26,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a knight hoisted onto a horse by a crane",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "9466657": 1,
+    "9466313": 1,
+    "39129481": 1,
+    "pixabay:226957": 1,
+    "17062603": 1,
+    "9466648": 1,
+    "12249073": 1,
+    "27980074": 1,
+    "9466541": 1,
+    "34477605": 1,
+    "12155321": 1,
+    "37459772": 1,
+    "19877526": 1,
+    "18641853": 1,
+    "9466537": 1,
+    "27008444": 1,
+    "pixabay:6574": 1,
+    "9466532": 1,
+    "19844651": 1,
+    "34900439": 1
+   },
+   "calls": 4,
+   "cache_hits": 0,
+   "cost": 2765
+  },
+  {
+   "index": 26,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466657",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show men in historical light cavalry attire (helmets, sabers) already riding horses. There is no full plate armor, no mounting action, and no crane visible.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 352,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "9466313",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a man in a 19th-century military uniform riding a horse, not an armoured knight, and there is no crane or hoisting action visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 281,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "39129481",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show an equestrian statue on a pedestal against the evening sky, not a real knight, horse, or crane.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 751,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:226957",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image is a close-up photograph of a horse's head and eye. There is no knight, armor, or crane visible in the frame.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 672,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "17062603",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The images show a rotating statue of a knight on a horse on a plinth outdoors. The knight is already seated on the horse, not mounting it, and there is no crane visible. The caption confirms it is a video of a statue.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 600,
+   "call": true
+  },
+  {
+   "index": 26,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "37459772",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The frames show a traditional Mexican charro rider on a horse, not an armoured knight, and there is no crane or hoist visible.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 534,
+   "call": true
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "the armour supposedly weighed fifty to a hundred kilograms",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "commons:32992249": 3,
+    "commons:29047976": 3,
+    "pixabay:5449298": 2,
+    "chicago:116353": 3,
+    "commons:33003575": 3
+   },
+   "calls": 1,
+   "cache_hits": 0,
+   "cost": 477
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:32992249",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image shows a full suit of plate armor displayed on a stand against a plain background, characteristic of a museum object photograph.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 408,
+   "call": true
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:29047976",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image displays a full suit of plate armor. However, it appears slender and relatively small, consistent with the caption describing it as a child's armor, so it does not look massive. It is a black-and-white photograph of a museum object on a plain background.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 750,
+   "call": true
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:116353",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image shows a complete suit of plate armor photographed against a plain white background, consistent with a museum object documentation photo.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 421,
+   "call": true
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:33003575",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a black and white photograph of a suit of plate armor. It appears to be a boy's armor (as noted in the caption 'pojkrustning'), looking relatively slender and small rather than heavy and massive.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 462,
+   "call": true
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:5449298",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph of a museum wall display featuring two full suits of plate armor surrounded by various mounted historical weapons.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "cost": 621,
+   "call": true
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "look_tied": [
+    "commons:32992249",
+    "chicago:116353"
+   ],
+   "look_order": [
+    "chicago:116353",
+    "commons:32992249"
+   ],
+   "cost": 282,
+   "call": true
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "focus": "the armour supposedly weighed fifty to a hundred kilograms",
+   "focus_box": null,
+   "focus_what": null,
+   "cost": 296,
+   "cache_hit": null,
+   "focus_box_used": null
+  },
+  {
+   "index": 28,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a field plate armour weighed twenty to twenty-five kilograms",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "commons:57850219": 3,
+    "31350031": 2,
+    "pixabay:211543": 2,
+    "11952611": 1,
+    "chicago:116211": 3
+   },
+   "calls": 1,
+   "cache_hits": 0,
+   "cost": 411
+  },
+  {
+   "index": 28,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:57850219",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image shows a frontal view (not three-quarter) of a highly ornate suit of plate armor photographed against a plain grey background, consistent with a museum object record (Metropolitan Museum of Art).",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 914,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:116211",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "unsure",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image shows a full suit of plate armor from a direct front view against a plain background, typical of a museum object photograph. It is standing upright, but the museum environment itself is not visible.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.5,
+    0.0,
+    1.0,
+    1.0
+   ],
+   "cost": 679,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "31350031",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "unsure",
+     "c2": "no",
+     "c3": "unsure",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a close-up photograph of ornate plate armor. It shows parts of a suit of armor, but not a full three-quarter view, and lacks the background context to confirm a museum display.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.5,
+    0.0,
+    1.0,
+    0.5
+   ],
+   "cost": 478,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:211543",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph showing a direct frontal view of a plate armor torso and arm defenses mounted on a stand inside a glass display case in a museum.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 791,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "11952611",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "unsure",
+     "c2": "yes",
+     "c3": "unsure",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph showing a three-quarter view of a plate armor suit against a brick wall. While it is clearly a suit of armor, the specific location (museum) and the display stand itself are not definitively visible.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.5,
+    1.0,
+    1.0,
+    0.5
+   ],
+   "cost": 440,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "a field plate armour weighed twenty to twenty-five kilograms",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "39157259": 1,
+    "39157153": 1,
+    "pixabay:56075": 2,
+    "38103931": 1,
+    "39157255": 1,
+    "pixabay:233550": 2,
+    "38103934": 1,
+    "39157256": 1,
+    "39157260": 1,
+    "28309301": 2,
+    "pixabay:233551": 2,
+    "7575436": 1,
+    "39157258": 1,
+    "pixabay:24410": 2,
+    "38103942": 1,
+    "39157154": 1,
+    "pixabay:24413": 2,
+    "38103940": 1,
+    "38103937": 1,
+    "38103941": 1
+   },
+   "calls": 4,
+   "cache_hits": 0,
+   "cost": 2666
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:56075",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "yes",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image is a 3D cartoon render of a knight in plate armor on a plain white background, not a real museum display or photograph.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 585,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:233550",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image is a 3D cartoon render of a knight in plate armor on a plain blue background, not a real museum object. It is a straight front view, not three-quarter, and lacks a display stand.",
+    "main_in_world": false,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 375,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "28309301",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "yes",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a person wearing a suit of plate armor climbing a stone wall outdoors, not displayed in a museum.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "cost": 276,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:233551",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image is a 3D render or cartoon-style illustration of a suit of armor on a plain white background, not a photograph of a museum object.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 763,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:24410",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "yes",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "cg",
+    "why": "The image is a 3D cartoon render of a knight in plate armor on a plain red background, not a real museum display.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": null,
+   "cost": 1005,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "39157259",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows a terracotta warrior statue from an exhibit in Xi'an, not a field plate armour or a suit of metal armour.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 330,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "39157153",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "unsure",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a close-up of a terracotta warrior's armor in a museum, not a European field plate armour.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 670,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38103931",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows people wearing Roman-style plate armor during an outdoor historical reenactment, not a museum display. The armor is worn by living participants, seen from the back and side.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 325,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "39157255",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "yes",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image shows a terracotta warrior statue in a museum, not a European field plate armor, though the statue is wearing armor and is shown in a three-quarter view on display.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 591,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38103942",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "no"
+    },
+    "medium": "photo",
+    "why": "The image shows frames from a video of Roman historical reenactors outdoors wearing tunics and helmets, not a field plate armour or a suit of armour on display.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 431,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38103937",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show a historical reenactment of Roman legionnaires outdoors wearing Roman armor (lorica segmentata), not a medieval field plate armour on a museum display.",
+    "main_in_world": false,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 677,
+   "call": true
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "model": "qwen/qwen3.7-plus",
+   "id": "38103941",
+   "verify": {
+    "claims": {
+     "core": "no",
+     "c1": "no",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The frames show an outdoor historical reenactment with people wearing Roman-style armor (cuirass), not a full field plate armor on a museum display.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": null,
+   "cost": 390,
+   "call": true
+  },
+  {
+   "index": 29,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "brief": "the helmet weighed two to four kilograms and weight was distributed over the body",
+   "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+   "scores": {
+    "commons:29002823": 3,
+    "chicago:111793": 2,
+    "chicago:112071": 2,
+    "chicago:111794": 2,
+    "pixabay:1052249": 3
+   },
+   "calls": 1,
+   "cache_hits": 0,
+   "cost": 1414
+  },
+  {
+   "index": 29,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "commons:29002823",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a close-up photograph of a medieval metal helmet. It appears heavy, thick, and robust rather than small or light. No person is clearly visible; it appears to be a museum object on display.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 829,
+   "call": true
+  },
+  {
+   "index": 29,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "pixabay:1052249",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "c3": "yes",
+     "subject": "yes"
+    },
+    "medium": "photo",
+    "why": "The image is a photograph showing a person wearing a heavy-looking medieval metal helmet and chainmail armor.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0
+   ],
+   "cost": 803,
+   "call": true
+  },
+  {
+   "index": 29,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:111793",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image is a photograph of a solid metal medieval helmet (sallet) on a display stand against a plain background, typical of a museum object. No person is wearing it, and the thick metal construction does not appear light.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "cost": 610,
+   "call": true
+  },
+  {
+   "index": 29,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:112071",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image shows a heavy-looking metal close helmet on a display stand against a plain background, with no person present.",
+    "main_in_world": true,
+    "background_foreign": false
+   },
+   "vector": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "cost": 743,
+   "call": true
+  },
+  {
+   "index": 29,
+   "kind": "photo",
+   "model": "qwen/qwen3.7-plus",
+   "id": "chicago:111794",
+   "verify": {
+    "claims": {
+     "core": "yes",
+     "c1": "yes",
+     "c2": "no",
+     "c3": "no",
+     "subject": "yes"
+    },
+    "medium": "object",
+    "why": "The image shows a solid metal medieval helmet displayed on a clear stand against a plain background, which is characteristic of a museum object photograph. It is not being worn by a person, and it appears heavy and substantial rather than small and light.",
+    "main_in_world": true,
+    "background_foreign": true
+   },
+   "vector": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "cost": 672,
+   "call": true
+  }
+ ]
+}

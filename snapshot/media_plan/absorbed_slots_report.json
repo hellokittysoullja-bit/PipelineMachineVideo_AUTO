@@ -1,0 +1,19 @@
+{
+  "never_show_known_bad": true,
+  "tail_carry_sec": 0.0,
+  "slots_evaluated_this_run": 110,
+  "misses": [
+    {
+      "index": 78,
+      "reason": "no_media_at_all",
+      "text": "Длительность боя в доспехе не измеряли вообще.",
+      "carried_sec": 3.667
+    },
+    {
+      "index": 82,
+      "reason": "no_media_at_all",
+      "text": "Есть работы про современные бронежилеты, а про латы нет.",
+      "carried_sec": 3.625
+    }
+  ]
+}

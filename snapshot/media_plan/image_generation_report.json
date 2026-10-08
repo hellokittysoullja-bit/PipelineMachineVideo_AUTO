@@ -1,0 +1,33 @@
+{
+ "gateway": {
+  "base_url": "https://anymodel.org/v1",
+  "calls": 1,
+  "failures": 0,
+  "lost_bodies": 0,
+  "empty_answers": 0,
+  "spent": 37500,
+  "spend_cap": 400000,
+  "dead": null,
+  "pause_wait_sec": 0.0,
+  "reasked": 0,
+  "empty_answer_reasked": 0,
+  "fallback_switches": 0,
+  "fallback_answers": {}
+ },
+ "slots": [
+  {
+   "index": 21,
+   "phrase": "который выдыхался за минуты, повторяют все.",
+   "trigger": "failed",
+   "description": "everyone repeats the claim about the knight",
+   "description_origin": "brief",
+   "description_error": "GatewayError: 503 (bad_gateway, request_id=err_c10b447f-c38d-4eec-87a0-9adb42aade4f)",
+   "variants": [
+    "4d4fd39e9051876800a5"
+   ],
+   "errors": [],
+   "prompt": "Hand-drawn colored pencil illustration on textured paper, visible pencil strokes and hatching, soft warm earthy colors, no digital gloss, no text, no letters. everyone repeats the claim about the knight. Wide cinematic composition.",
+   "found": true
+  }
+ ]
+}

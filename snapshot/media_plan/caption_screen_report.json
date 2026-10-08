@@ -1,0 +1,1001 @@
+{
+ "gateway": {
+  "base_url": "https://anymodel.org/v1",
+  "calls": 34,
+  "failures": 1,
+  "lost_bodies": 1,
+  "empty_answers": 0,
+  "spent": 28377,
+  "spend_cap": 30000,
+  "dead": null,
+  "pause_wait_sec": 0.0,
+  "reasked": 0,
+  "empty_answer_reasked": 0,
+  "fallback_switches": 1,
+  "fallback_answers": {
+   "ds/deepseek-v4-pro": 1
+  }
+ },
+ "slots": [
+  {
+   "index": 16,
+   "kind": "photo",
+   "phrase": "Как так? Разберём через пару минут.",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "38141661",
+     "channel": "pexels",
+     "text": "a roman legionary in full armor, showcasing historical attire with a feathered helmet"
+    },
+    {
+     "id": "38141658",
+     "channel": "pexels",
+     "text": "side profile of a roman soldier reenactor in detailed armor, thoughtful pose"
+    },
+    {
+     "id": "38125778",
+     "channel": "pexels",
+     "text": "a detailed side profile of a roman soldier wearing traditional armor during a historical reenactment"
+    },
+    {
+     "id": "34732752",
+     "channel": "pexels",
+     "text": "a viking reenactor in armor at a historical event in szczecin, poland"
+    },
+    {
+     "id": "34732744",
+     "channel": "pexels",
+     "text": "a viking reenactor in armor participates in a historical event in szczecin, poland"
+    },
+    {
+     "id": "34732734",
+     "channel": "pexels",
+     "text": "viking reenactment scene with actors in traditional armor during a history festival in szczecin, poland"
+    },
+    {
+     "id": "34732746",
+     "channel": "pexels",
+     "text": "authentic viking reenactment captured in szczecin, showcasing traditional attire and culture"
+    },
+    {
+     "id": "38125823",
+     "channel": "pexels",
+     "text": "roman soldier reenactors in historical attire at an outdoor event"
+    },
+    {
+     "id": "38143378",
+     "channel": "pexels",
+     "text": "historical reenactment of roman legionnaires during a festival in wrocław, poland"
+    },
+    {
+     "id": "pixabay:3026472",
+     "channel": "pixabay",
+     "text": "king charles, king, charles, charles iv, celebration, coronation, historic, ceremony, st vitus cathedral, vitus cathedral, vitus, cathedral, tourists,"
+    },
+    {
+     "id": "34732750",
+     "channel": "pexels",
+     "text": "viking reenactors in historical armor at a medieval festival in szczecin, poland"
+    },
+    {
+     "id": "34732735",
+     "channel": "pexels",
+     "text": "a close up profile of a woman in viking inspired attire at a cultural festival in szczecin, poland"
+    },
+    {
+     "id": "34732749",
+     "channel": "pexels",
+     "text": "men in viking armor participate in a reenactment event in szczecin, poland"
+    }
+   ],
+   "price": 1761,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 17,
+   "kind": "video",
+   "phrase": "Но есть вещь страннее.",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "38103942",
+     "channel": "pexels",
+     "text": "roman soldiers historical reenactment outdoors"
+    },
+    {
+     "id": "38103931",
+     "channel": "pexels",
+     "text": "roman soldiers engaging historical reenactment"
+    },
+    {
+     "id": "32736484",
+     "channel": "pexels",
+     "text": "traditional korean martial arts demonstration"
+    },
+    {
+     "id": "32736476",
+     "channel": "pexels",
+     "text": "traditional korean sword fighting demonstration"
+    },
+    {
+     "id": "38103932",
+     "channel": "pexels",
+     "text": "roman legion reenactment with shields and armor"
+    },
+    {
+     "id": "39157256",
+     "channel": "pexels",
+     "text": "exploring the terracotta warriors museum"
+    },
+    {
+     "id": "38103937",
+     "channel": "pexels",
+     "text": "roman legionnaire historical reenactment parade"
+    },
+    {
+     "id": "39157260",
+     "channel": "pexels",
+     "text": "terracotta warriors exhibit"
+    },
+    {
+     "id": "38103934",
+     "channel": "pexels",
+     "text": "roman soldiers historic shield formation"
+    },
+    {
+     "id": "pixabay:167614",
+     "channel": "pixabay",
+     "text": "spartan warriors, helmet, warriors, loop, swords, old warrior, old spartan"
+    },
+    {
+     "id": "38103940",
+     "channel": "pexels",
+     "text": "roman legionaries marching formation outdoors"
+    },
+    {
+     "id": "38104097",
+     "channel": "pexels",
+     "text": "roman legionaries reenactment historical site"
+    },
+    {
+     "id": "39157909",
+     "channel": "pexels",
+     "text": "terracotta army warriors china"
+    }
+   ],
+   "price": 1268,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 17,
+   "kind": "photo",
+   "phrase": "Но есть вещь страннее.",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "32255854",
+     "channel": "pexels",
+     "text": "historic re enactment with knights in full armor at a festive outdoor event"
+    },
+    {
+     "id": "34732757",
+     "channel": "pexels",
+     "text": "capture of a lively viking battle reenactment in szczecin, poland"
+    }
+   ],
+   "price": 1745,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 18,
+   "kind": "video",
+   "phrase": "Обе лаборатории мерили ходьбу на дорожке.",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 0,
+   "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 250 (char 249)"
+  },
+  {
+   "index": 18,
+   "kind": "photo",
+   "phrase": "Обе лаборатории мерили ходьбу на дорожке.",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "1534133",
+     "channel": "pexels",
+     "text": "a knight in full armor stands at a lively renaissance fair surrounded by people and flags"
+    },
+    {
+     "id": "38141661",
+     "channel": "pexels",
+     "text": "a roman legionary in full armor, showcasing historical attire with a feathered helmet"
+    },
+    {
+     "id": "pixabay:6881218",
+     "channel": "pixabay",
+     "text": "woman, warrior, knight, hunter, jousting, fantasy, medieval, battle, warrior, warrior, warrior, warrior, warrior, knight, medieval"
+    },
+    {
+     "id": "38125782",
+     "channel": "pexels",
+     "text": "back view of a knight in shiny metal helmet with chainmail, focused on historical reenactment"
+    },
+    {
+     "id": "38141658",
+     "channel": "pexels",
+     "text": "side profile of a roman soldier reenactor in detailed armor, thoughtful pose"
+    },
+    {
+     "id": "pixabay:7462309",
+     "channel": "pixabay",
+     "text": "knight, warrior, war, medieval knight, fantasy, knight, knight, knight, knight, knight, warrior, warrior, warrior, war, fantasy"
+    },
+    {
+     "id": "pixabay:978558",
+     "channel": "pixabay",
+     "text": "helmet, knight, armor, museum, view, knight, knight, knight, knight, knight, armor, armor"
+    },
+    {
+     "id": "pixabay:7133071",
+     "channel": "pixabay",
+     "text": "warrior, viking, medieval, mystery, mist, show, helmet, warrior, viking, viking, viking, viking, viking"
+    },
+    {
+     "id": "38125778",
+     "channel": "pexels",
+     "text": "a detailed side profile of a roman soldier wearing traditional armor during a historical reenactment"
+    },
+    {
+     "id": "38125780",
+     "channel": "pexels",
+     "text": "close up of a knight in armor, capturing the essence of a historical reenactment"
+    },
+    {
+     "id": "11303236",
+     "channel": "pexels",
+     "text": "a detailed view of a majestic ottoman armor statue against a blurred, dark background"
+    },
+    {
+     "id": "34732752",
+     "channel": "pexels",
+     "text": "a viking reenactor in armor at a historical event in szczecin, poland"
+    },
+    {
+     "id": "chicago:81468",
+     "channel": "chicago",
+     "text": "knight"
+    },
+    {
+     "id": "pixabay:3601894",
+     "channel": "pixabay",
+     "text": "history, soldier, war, helmet, armor, knight, historical, medieval, protection, weapons, warrior"
+    },
+    {
+     "id": "33091810",
+     "channel": "pexels",
+     "text": "a knight in full medieval armor standing outdoors in höxter, germany"
+    }
+   ],
+   "price": 1689,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 19,
+   "kind": "photo",
+   "phrase": "Сам бой не мерили. Я искал замер схватки в доспехе",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "34732752",
+     "channel": "pexels",
+     "text": "a viking reenactor in armor at a historical event in szczecin, poland"
+    },
+    {
+     "id": "pixabay:7133071",
+     "channel": "pixabay",
+     "text": "warrior, viking, medieval, mystery, mist, show, helmet, warrior, viking, viking, viking, viking, viking"
+    },
+    {
+     "id": "38141661",
+     "channel": "pexels",
+     "text": "a roman legionary in full armor, showcasing historical attire with a feathered helmet"
+    },
+    {
+     "id": "38141658",
+     "channel": "pexels",
+     "text": "side profile of a roman soldier reenactor in detailed armor, thoughtful pose"
+    },
+    {
+     "id": "34732734",
+     "channel": "pexels",
+     "text": "viking reenactment scene with actors in traditional armor during a history festival in szczecin, poland"
+    },
+    {
+     "id": "pixabay:805358",
+     "channel": "pixabay",
+     "text": "chain armor, chainmail, ringmail, warrior, hauberk, armor, mail, weapon, history, armour, fighter, historic, norse, scandinavian, viking, male, leathe"
+    },
+    {
+     "id": "38125778",
+     "channel": "pexels",
+     "text": "a detailed side profile of a roman soldier wearing traditional armor during a historical reenactment"
+    },
+    {
+     "id": "10068862",
+     "channel": "pexels",
+     "text": "portrait of a viking warrior wearing a metal helmet and fur cloak, captured against a dark background"
+    },
+    {
+     "id": "34732747",
+     "channel": "pexels",
+     "text": "a close up of a viking warrior in traditional armor during a reenactment in szczecin, poland"
+    },
+    {
+     "id": "27697882",
+     "channel": "pexels",
+     "text": "man in historical clothing loading a musket outdoors, reenactment setting"
+    },
+    {
+     "id": "10068847",
+     "channel": "pexels",
+     "text": "a viking warrior in armor holding a sword, showcasing historical attire"
+    },
+    {
+     "id": "34732744",
+     "channel": "pexels",
+     "text": "a viking reenactor in armor participates in a historical event in szczecin, poland"
+    },
+    {
+     "id": "34732757",
+     "channel": "pexels",
+     "text": "capture of a lively viking battle reenactment in szczecin, poland"
+    },
+    {
+     "id": "34732750",
+     "channel": "pexels",
+     "text": "viking reenactors in historical armor at a medieval festival in szczecin, poland"
+    },
+    {
+     "id": "30736362",
+     "channel": "pexels",
+     "text": "a turkish warrior in historical armor on horseback faces a vast landscape in konya, türkiye"
+    },
+    {
+     "id": "10068865",
+     "channel": "pexels",
+     "text": "a viking warrior in armor, posing confidently with crossed arms and wearing a helmet"
+    },
+    {
+     "id": "10068852",
+     "channel": "pexels",
+     "text": "viking warrior in armor with helmet and sword, evoking medieval times"
+    },
+    {
+     "id": "10068856",
+     "channel": "pexels",
+     "text": "side profile of a viking warrior in traditional armor, holding a decorated shield and sword"
+    },
+    {
+     "id": "pixabay:3026472",
+     "channel": "pixabay",
+     "text": "king charles, king, charles, charles iv, celebration, coronation, historic, ceremony, st vitus cathedral, vitus cathedral, vitus, cathedral, tourists,"
+    },
+    {
+     "id": "32283258",
+     "channel": "pexels",
+     "text": "a man dressed in traditional turkish warrior armor with fur details poses outdoors against a clear sky"
+    },
+    {
+     "id": "pixabay:1931077",
+     "channel": "pixabay",
+     "text": "gladiator, warrior, gear, weapons, arena, roman, history, soldier, ancient, spartan, hero, armour, fight, man, helmet, knight, armor, battle, war, ste"
+    },
+    {
+     "id": "9267805",
+     "channel": "pexels",
+     "text": "a reenactor in vintage military uniform adjusts his hat during an outdoor event"
+    },
+    {
+     "id": "38125823",
+     "channel": "pexels",
+     "text": "roman soldier reenactors in historical attire at an outdoor event"
+    },
+    {
+     "id": "34732749",
+     "channel": "pexels",
+     "text": "men in viking armor participate in a reenactment event in szczecin, poland"
+    },
+    {
+     "id": "11303236",
+     "channel": "pexels",
+     "text": "a detailed view of a majestic ottoman armor statue against a blurred, dark background"
+    },
+    {
+     "id": "10068855",
+     "channel": "pexels",
+     "text": "a fierce viking warrior posing with a shield and bludgeon, wearing traditional armor"
+    },
+    {
+     "id": "38143378",
+     "channel": "pexels",
+     "text": "historical reenactment of roman legionnaires during a festival in wrocław, poland"
+    },
+    {
+     "id": "10068857",
+     "channel": "pexels",
+     "text": "a medieval warrior wearing a helmet and leather armor, holding a sword, embodying the viking spirit"
+    },
+    {
+     "id": "32757126",
+     "channel": "pexels",
+     "text": "a man in historical costume and armor stands outdoors in konya, türkiye"
+    },
+    {
+     "id": "10068861",
+     "channel": "pexels",
+     "text": "a viking warrior wearing a helmet and armor with fur covering against a dark background"
+    },
+    {
+     "id": "9267827",
+     "channel": "pexels",
+     "text": "a man in a french napoleonic uniform poses outdoors in a historical reenactment setting"
+    },
+    {
+     "id": "pixabay:4178401",
+     "channel": "pixabay",
+     "text": "viking, war, warrior, knight, battle, medieval, history, weapon, armor, barbarian, sword, shield, military, ancient, axe, vikings, protection, scandin"
+    }
+   ],
+   "price": 1811,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "phrase": "и не нашёл ни одного. А фразу про рыцаря,",
+   "asked": 100,
+   "dropped": [],
+   "price": 2248,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 20,
+   "kind": "photo",
+   "phrase": "и не нашёл ни одного. А фразу про рыцаря,",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 2,
+   "error": null
+  },
+  {
+   "index": 21,
+   "kind": "video",
+   "phrase": "который выдыхался за минуты, повторяют все.",
+   "asked": 100,
+   "dropped": [],
+   "price": 1001,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "phrase": "который выдыхался за минуты, повторяют все.",
+   "asked": 100,
+   "dropped": [],
+   "price": 1376,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "phrase": "который выдыхался за минуты, повторяют все.",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 2,
+   "error": null
+  },
+  {
+   "index": 21,
+   "kind": "photo",
+   "phrase": "который выдыхался за минуты, повторяют все.",
+   "asked": 1,
+   "dropped": [],
+   "price": 241,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 22,
+   "kind": "video",
+   "phrase": "Зато один французский маршал шестьсот лет назад специально",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "39157259",
+     "channel": "pexels",
+     "text": "terracotta warrior exhibit museum"
+    },
+    {
+     "id": "30272556",
+     "channel": "pexels",
+     "text": "roman soldier riding horse open fields"
+    },
+    {
+     "id": "34582652",
+     "channel": "pexels",
+     "text": "medieval warrior cosplayer convention"
+    },
+    {
+     "id": "39157260",
+     "channel": "pexels",
+     "text": "terracotta warriors exhibit"
+    },
+    {
+     "id": "38103942",
+     "channel": "pexels",
+     "text": "roman soldiers historical reenactment outdoors"
+    },
+    {
+     "id": "38103934",
+     "channel": "pexels",
+     "text": "roman soldiers historic shield formation"
+    },
+    {
+     "id": "27602968",
+     "channel": "pexels",
+     "text": "display chinese bronze statues people and horses"
+    },
+    {
+     "id": "12333445",
+     "channel": "pexels",
+     "text": "man riding horse during the tastoanes festival mexico"
+    },
+    {
+     "id": "37459772",
+     "channel": "pexels",
+     "text": "traditional mexican charro parade with horses"
+    },
+    {
+     "id": "38103932",
+     "channel": "pexels",
+     "text": "roman legion reenactment with shields and armor"
+    },
+    {
+     "id": "39157158",
+     "channel": "pexels",
+     "text": "terracotta warriors museum"
+    },
+    {
+     "id": "37709386",
+     "channel": "pexels",
+     "text": "medieval festival parade with costumed participants"
+    },
+    {
+     "id": "39157157",
+     "channel": "pexels",
+     "text": "terracotta warrior exhibit museum"
+    },
+    {
+     "id": "29820544",
+     "channel": "pexels",
+     "text": "statue ataturk sunlit city square"
+    },
+    {
+     "id": "37685634",
+     "channel": "pexels",
+     "text": "medieval festival reenactment with knights parade"
+    },
+    {
+     "id": "38103931",
+     "channel": "pexels",
+     "text": "roman soldiers engaging historical reenactment"
+    },
+    {
+     "id": "7566507",
+     "channel": "pexels",
+     "text": "hieroglyphics stone tablet"
+    }
+   ],
+   "price": 1172,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 22,
+   "kind": "photo",
+   "phrase": "Зато один французский маршал шестьсот лет назад специально",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "30736361",
+     "channel": "pexels",
+     "text": "a historical reenactment featuring a warrior on horseback in konya, türkiye"
+    },
+    {
+     "id": "30736363",
+     "channel": "pexels",
+     "text": "a historical turkish warrior in armor on horseback in konya, türkiye, captured outdoors"
+    },
+    {
+     "id": "37539478",
+     "channel": "pexels",
+     "text": "a turkish warrior on horseback in traditional armor and attire, showcasing cultural heritage"
+    },
+    {
+     "id": "29342497",
+     "channel": "pexels",
+     "text": "intricate arabic calligraphy on a vintage manuscript page with decorative border"
+    }
+   ],
+   "price": 1891,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 23,
+   "kind": "video",
+   "phrase": "тренировался, чтобы не сбивать дыхание.",
+   "asked": 100,
+   "dropped": [],
+   "price": 1189,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 23,
+   "kind": "photo",
+   "phrase": "тренировался, чтобы не сбивать дыхание.",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "35327453",
+     "channel": "pexels",
+     "text": "a medieval warrior in armor riding a horse holding a flag, outdoors in konya, türkiye"
+    },
+    {
+     "id": "9267426",
+     "channel": "pexels",
+     "text": "men in vintage military uniforms at a reenactment camp during summer"
+    },
+    {
+     "id": "30736362",
+     "channel": "pexels",
+     "text": "a turkish warrior in historical armor on horseback faces a vast landscape in konya, türkiye"
+    },
+    {
+     "id": "38125778",
+     "channel": "pexels",
+     "text": "a detailed side profile of a roman soldier wearing traditional armor during a historical reenactment"
+    },
+    {
+     "id": "38141661",
+     "channel": "pexels",
+     "text": "a roman legionary in full armor, showcasing historical attire with a feathered helmet"
+    },
+    {
+     "id": "9267805",
+     "channel": "pexels",
+     "text": "a reenactor in vintage military uniform adjusts his hat during an outdoor event"
+    },
+    {
+     "id": "11303236",
+     "channel": "pexels",
+     "text": "a detailed view of a majestic ottoman armor statue against a blurred, dark background"
+    },
+    {
+     "id": "16563533",
+     "channel": "pexels",
+     "text": "dramatic capture of a historical battle reenactment in almansa, spain, featuring soldiers in period uniforms"
+    },
+    {
+     "id": "38143378",
+     "channel": "pexels",
+     "text": "historical reenactment of roman legionnaires during a festival in wrocław, poland"
+    },
+    {
+     "id": "9267432",
+     "channel": "pexels",
+     "text": "men in napoleonic uniforms reenacting a military camp scene outdoors"
+    }
+   ],
+   "price": 1806,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 24,
+   "kind": "photo",
+   "phrase": "Зачем, если бой длился пару минут?",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "34732744",
+     "channel": "pexels",
+     "text": "a viking reenactor in armor participates in a historical event in szczecin, poland"
+    },
+    {
+     "id": "1534133",
+     "channel": "pexels",
+     "text": "a knight in full armor stands at a lively renaissance fair surrounded by people and flags"
+    },
+    {
+     "id": "38125778",
+     "channel": "pexels",
+     "text": "a detailed side profile of a roman soldier wearing traditional armor during a historical reenactment"
+    },
+    {
+     "id": "10068862",
+     "channel": "pexels",
+     "text": "portrait of a viking warrior wearing a metal helmet and fur cloak, captured against a dark background"
+    },
+    {
+     "id": "38141658",
+     "channel": "pexels",
+     "text": "side profile of a roman soldier reenactor in detailed armor, thoughtful pose"
+    },
+    {
+     "id": "38141661",
+     "channel": "pexels",
+     "text": "a roman legionary in full armor, showcasing historical attire with a feathered helmet"
+    },
+    {
+     "id": "34732734",
+     "channel": "pexels",
+     "text": "viking reenactment scene with actors in traditional armor during a history festival in szczecin, poland"
+    },
+    {
+     "id": "34732752",
+     "channel": "pexels",
+     "text": "a viking reenactor in armor at a historical event in szczecin, poland"
+    },
+    {
+     "id": "35327453",
+     "channel": "pexels",
+     "text": "a medieval warrior in armor riding a horse holding a flag, outdoors in konya, türkiye"
+    },
+    {
+     "id": "8116144",
+     "channel": "pexels",
+     "text": "knights in full armor engage in a sword performance on an urban street"
+    },
+    {
+     "id": "pixabay:7133071",
+     "channel": "pixabay",
+     "text": "warrior, viking, medieval, mystery, mist, show, helmet, warrior, viking, viking, viking, viking, viking"
+    },
+    {
+     "id": "10068861",
+     "channel": "pexels",
+     "text": "a viking warrior wearing a helmet and armor with fur covering against a dark background"
+    },
+    {
+     "id": "10068847",
+     "channel": "pexels",
+     "text": "a viking warrior in armor holding a sword, showcasing historical attire"
+    },
+    {
+     "id": "10068865",
+     "channel": "pexels",
+     "text": "a viking warrior in armor, posing confidently with crossed arms and wearing a helmet"
+    },
+    {
+     "id": "38125823",
+     "channel": "pexels",
+     "text": "roman soldier reenactors in historical attire at an outdoor event"
+    },
+    {
+     "id": "38143378",
+     "channel": "pexels",
+     "text": "historical reenactment of roman legionnaires during a festival in wrocław, poland"
+    },
+    {
+     "id": "30736362",
+     "channel": "pexels",
+     "text": "a turkish warrior in historical armor on horseback faces a vast landscape in konya, türkiye"
+    },
+    {
+     "id": "10068866",
+     "channel": "pexels",
+     "text": "dynamic portrait of a medieval warrior with armor, sword, and shield, evoking a historical viking aesthetic"
+    },
+    {
+     "id": "10068857",
+     "channel": "pexels",
+     "text": "a medieval warrior wearing a helmet and leather armor, holding a sword, embodying the viking spirit"
+    },
+    {
+     "id": "10068856",
+     "channel": "pexels",
+     "text": "side profile of a viking warrior in traditional armor, holding a decorated shield and sword"
+    },
+    {
+     "id": "34732747",
+     "channel": "pexels",
+     "text": "a close up of a viking warrior in traditional armor during a reenactment in szczecin, poland"
+    },
+    {
+     "id": "10068855",
+     "channel": "pexels",
+     "text": "a fierce viking warrior posing with a shield and bludgeon, wearing traditional armor"
+    },
+    {
+     "id": "pixabay:4178401",
+     "channel": "pixabay",
+     "text": "viking, war, warrior, knight, battle, medieval, history, weapon, armor, barbarian, sword, shield, military, ancient, axe, vikings, protection, scandin"
+    },
+    {
+     "id": "11303236",
+     "channel": "pexels",
+     "text": "a detailed view of a majestic ottoman armor statue against a blurred, dark background"
+    },
+    {
+     "id": "34732750",
+     "channel": "pexels",
+     "text": "viking reenactors in historical armor at a medieval festival in szczecin, poland"
+    },
+    {
+     "id": "10068852",
+     "channel": "pexels",
+     "text": "viking warrior in armor with helmet and sword, evoking medieval times"
+    },
+    {
+     "id": "10068853",
+     "channel": "pexels",
+     "text": "viking warrior in medieval armor holding a mace, with fur cloak and metal helmet"
+    }
+   ],
+   "price": 1922,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 25,
+   "kind": "video",
+   "phrase": "Давай сначала разберёмся с тем, что ты наверняка слышал.",
+   "asked": 100,
+   "dropped": [
+    {
+     "id": "38103942",
+     "channel": "pexels",
+     "text": "roman soldiers historical reenactment outdoors"
+    },
+    {
+     "id": "38103931",
+     "channel": "pexels",
+     "text": "roman soldiers engaging historical reenactment"
+    },
+    {
+     "id": "38103934",
+     "channel": "pexels",
+     "text": "roman soldiers historic shield formation"
+    },
+    {
+     "id": "38103932",
+     "channel": "pexels",
+     "text": "roman legion reenactment with shields and armor"
+    },
+    {
+     "id": "30272556",
+     "channel": "pexels",
+     "text": "roman soldier riding horse open fields"
+    },
+    {
+     "id": "38103940",
+     "channel": "pexels",
+     "text": "roman legionaries marching formation outdoors"
+    },
+    {
+     "id": "38103939",
+     "channel": "pexels",
+     "text": "roman soldiers historical reenactment event"
+    },
+    {
+     "id": "39157158",
+     "channel": "pexels",
+     "text": "terracotta warriors museum"
+    },
+    {
+     "id": "32736484",
+     "channel": "pexels",
+     "text": "traditional korean martial arts demonstration"
+    },
+    {
+     "id": "38103933",
+     "channel": "pexels",
+     "text": "roman soldiers reenactment historical event"
+    },
+    {
+     "id": "39997078",
+     "channel": "pexels",
+     "text": "traditional costume preparation nepal"
+    }
+   ],
+   "price": 1405,
+   "cached": 0,
+   "error": null
+  },
+  {
+   "index": 25,
+   "kind": "photo",
+   "phrase": "Давай сначала разберёмся с тем, что ты наверняка слышал.",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 0,
+   "error": "BudgetExhausted: потолок 30000: потрачено 26457, в полёте 2375, нужно ещё до 2375"
+  },
+  {
+   "index": 26,
+   "kind": "photo",
+   "phrase": "Рыцаря в латах поднимали на коня краном. Упавший лежал как перевёрнутая черепаха и ждал, пока его добьют.",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 0,
+   "error": "BudgetExhausted: потолок 30000: потрачено 27362, в полёте 2375, нужно ещё до 2375"
+  },
+  {
+   "index": 26,
+   "kind": "video",
+   "phrase": "Рыцаря в латах поднимали на коня краном. Упавший лежал как перевёрнутая черепаха и ждал, пока его добьют.",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 0,
+   "error": "BudgetExhausted: потолок 30000: потрачено 28377, в полёте 0, нужно ещё до 2375"
+  },
+  {
+   "index": 27,
+   "kind": "photo",
+   "phrase": "А весил этот доспех то ли пятьдесят, то ли все сто килограммов.",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 0,
+   "error": "BudgetExhausted: потолок 30000: потрачено 28377, в полёте 0, нужно ещё до 2375"
+  },
+  {
+   "index": 28,
+   "kind": "photo",
+   "phrase": "Начнём с веса. Музей Метрополитен в Нью-Йорке пишет, что боевой полевой доспех весил от двадцати до двадцати пяти килограммов,",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 0,
+   "error": "BudgetExhausted: потолок 30000: потрачено 28377, в полёте 0, нужно ещё до 2375"
+  },
+  {
+   "index": 28,
+   "kind": "video",
+   "phrase": "Начнём с веса. Музей Метрополитен в Нью-Йорке пишет, что боевой полевой доспех весил от двадцати до двадцати пяти килограммов,",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 0,
+   "error": "BudgetExhausted: потолок 30000: потрачено 28377, в полёте 0, нужно ещё до 2375"
+  },
+  {
+   "index": 29,
+   "kind": "photo",
+   "phrase": "а шлем два-четыре. Причём вес распределён по всему телу.",
+   "asked": 100,
+   "dropped": [],
+   "price": 0,
+   "cached": 0,
+   "error": "BudgetExhausted: потолок 30000: потрачено 28377, в полёте 0, нужно ещё до 2375"
+  }
+ ]
+}

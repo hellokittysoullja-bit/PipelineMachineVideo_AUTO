@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "chicago": {
+      "offered": 8434,
+      "considered": 98,
+      "gate_passed": 30,
+      "won": 12,
+      "search_errors": 0,
+      "download_errors": 8
+    },
+    "cleveland": {
+      "offered": 239,
+      "considered": 17,
+      "gate_passed": 5,
+      "won": 5,
+      "search_errors": 0,
+      "download_errors": 0
+    },
+    "commons": {
+      "offered": 3736,
+      "considered": 140,
+      "gate_passed": 50,
+      "won": 22,
+      "search_errors": 1,
+      "download_errors": 43
+    },
+    "gen": {
+      "offered": 1,
+      "considered": 1,
+      "gate_passed": 1,
+      "won": 1,
+      "search_errors": 0,
+      "download_errors": 0
+    },
+    "openverse": {
+      "offered": 8038,
+      "considered": 35,
+      "gate_passed": 12,
+      "won": 3,
+      "search_errors": 1,
+      "download_errors": 23
+    },
+    "pexels": {
+      "offered": 41918,
+      "considered": 665,
+      "gate_passed": 441,
+      "won": 45,
+      "search_errors": 0,
+      "download_errors": 1
+    },
+    "pixabay": {
+      "offered": 26781,
+      "considered": 458,
+      "gate_passed": 241,
+      "won": 19,
+      "search_errors": 0,
+      "download_errors": 0
+    }
+  },
+  "museum_fetch": {
+    "met_cards_lost": 0,
+    "met_cooldowns": 0,
+    "met_requests": 197,
+    "met_catalog_hits": 0,
+    "met_search_failures": 197,
+    "met_rate_final": 5.0,
+    "search_cache_hits": 0,
+    "search_cache_misses": 197
+  },
+  "openverse_fetch": {
+    "requests": 281,
+    "cache_hits": 157,
+    "cache_misses": 281,
+    "auth": true
+  },
+  "host_health": {
+    "openverse": {
+      "requests": 281,
+      "cooldowns": 0,
+      "failures": 0,
+      "rate": null
+    },
+    "gateway:anymodel.org": {
+      "requests": 0,
+      "cooldowns": 0,
+      "failures": 14,
+      "rate": null
+    },
+    "met": {
+      "requests": 197,
+      "cooldowns": 0,
+      "failures": 0,
+      "rate": 5.0
+    },
+    "commons": {
+      "requests": 388,
+      "cooldowns": 134,
+      "failures": 0,
+      "rate": 0.125
+    },
+    "download:commons.wikimedia.org": {
+      "requests": 891,
+      "cooldowns": 0,
+      "failures": 0,
+      "rate": null
+    }
+  },
+  "commons_fetch": {
+    "requests": 388,
+    "cache_hits": 11,
+    "results": 4266,
+    "kept": 2036,
+    "rejected_license": 2110,
+    "rejected_size": 109,
+    "rejected_mime": 11,
+    "errors": 0
+  },
+  "total_won": 107,
+  "silent_sources": []
+}

@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "version": 1,
+  "shots_total": 54,
+  "shots_with_stage": 0,
+  "shots_without_stage": 54,
+  "stage_had_direction": 0,
+  "direction_overridden_by_antirepeat": 0,
+  "modes": {
+    "slow_pull": 5,
+    "static_hold": 17,
+    "classic_kb": 8,
+    "micro_drift": 20,
+    "horizontal_pan": 4
+  },
+  "language": {
+    "заход-якорь": {
+      "arc_stage": "заход-якорь",
+      "palette": [
+        "slow_pull",
+        "horizontal_pan"
+      ],
+      "zoom_in": false,
+      "shot_size": null
+    },
+    "постановка": {
+      "arc_stage": "постановка",
+      "palette": [
+        "classic_kb",
+        "horizontal_pan"
+      ],
+      "zoom_in": false,
+      "shot_size": null
+    },
+    "слом": {
+      "arc_stage": "слом",
+      "palette": [
+        "snap_push",
+        "classic_kb"
+      ],
+      "zoom_in": true,
+      "shot_size": null
+    },
+    "доказательство": {
+      "arc_stage": "доказательство",
+      "palette": [
+        "static_hold",
+        "micro_drift"
+      ],
+      "zoom_in": null,
+      "shot_size": null
+    },
+    "вывод": {
+      "arc_stage": "вывод",
+      "palette": [
+        "slow_pull",
+        "classic_kb"
+      ],
+      "zoom_in": false,
+      "shot_size": null
+    },
+    "перенос-на-зрителя": {
+      "arc_stage": "перенос-на-зрителя",
+      "palette": [
+        "classic_kb",
+        "snap_push"
+      ],
+      "zoom_in": true,
+      "shot_size": null
+    },
+    "мостик": {
+      "arc_stage": "мостик",
+      "palette": [
+        "horizontal_pan",
+        "classic_kb"
+      ],
+      "zoom_in": null,
+      "shot_size": null
+    },
+    "hook": {
+      "arc_stage": "hook",
+      "palette": [
+        "snap_push",
+        "classic_kb"
+      ],
+      "zoom_in": true,
+      "shot_size": null
+    },
+    "final": {
+      "arc_stage": "final",
+      "palette": [
+        "slow_pull",
+        "static_hold"
+      ],
+      "zoom_in": false,
+      "shot_size": null
+    }
+  }
+}

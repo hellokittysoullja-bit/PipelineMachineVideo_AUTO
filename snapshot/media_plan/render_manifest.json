@@ -1,0 +1,1005 @@
+{
+  "total_blocks": 125,
+  "ok": 123,
+  "missing": [],
+  "clips": [
+    {
+      "index": 0,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0000_6de6f22d.mp4",
+      "section": "HOOK",
+      "duration": 2.5416666666666665,
+      "kind": "photo"
+    },
+    {
+      "index": 1,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0001_b4d47b60.mp4",
+      "section": "HOOK",
+      "duration": 2.1250000000000004,
+      "kind": "photo"
+    },
+    {
+      "index": 2,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0002_0b444086.mp4",
+      "section": "HOOK",
+      "duration": 2.791666666666666,
+      "kind": "photo"
+    },
+    {
+      "index": 3,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0003_5c6272bd.mp4",
+      "section": "HOOK",
+      "duration": 3.916666666666667,
+      "kind": "photo"
+    },
+    {
+      "index": 4,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0004_3a0a08b3.mp4",
+      "section": "HOOK",
+      "duration": 2.916666666666666,
+      "kind": "photo"
+    },
+    {
+      "index": 5,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0005_b6397410.mp4",
+      "section": "HOOK",
+      "duration": 1.8750000000000018,
+      "kind": "photo"
+    },
+    {
+      "index": 6,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0006_f96fafb0.mp4",
+      "section": "HOOK",
+      "duration": 3.25,
+      "kind": "photo"
+    },
+    {
+      "index": 7,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0007_e0970c49.mp4",
+      "section": "HOOK",
+      "duration": 4.25,
+      "kind": "photo"
+    },
+    {
+      "index": 8,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0008_6f54d5c1.mp4",
+      "section": "HOOK",
+      "duration": 2.583333333333332,
+      "kind": "photo"
+    },
+    {
+      "index": 9,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0009_75b9901a.mp4",
+      "section": "HOOK",
+      "duration": 3.916666666666668,
+      "kind": "photo"
+    },
+    {
+      "index": 10,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0010_fc5239fd.mp4",
+      "section": "HOOK",
+      "duration": 3.083333333333332,
+      "kind": "photo"
+    },
+    {
+      "index": 11,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0011_c4782307.mp4",
+      "section": "HOOK",
+      "duration": 2.375,
+      "kind": "photo"
+    },
+    {
+      "index": 12,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0012_8c968abd.mp4",
+      "section": "HOOK",
+      "duration": 4.125,
+      "kind": "photo"
+    },
+    {
+      "index": 13,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0013_f324fb9a.mp4",
+      "section": "HOOK",
+      "duration": 4.208333333333336,
+      "kind": "photo"
+    },
+    {
+      "index": 14,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0014_e825a0f2.mp4",
+      "section": "HOOK",
+      "duration": 2.8333333333333286,
+      "kind": "photo"
+    },
+    {
+      "index": 15,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0015_19c2d247.mp4",
+      "section": "HOOK",
+      "duration": 2.4583333333333357,
+      "kind": "photo"
+    },
+    {
+      "index": 16,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0016_8f7c1ea8.mp4",
+      "section": "HOOK",
+      "duration": 2.75,
+      "kind": "photo"
+    },
+    {
+      "index": 17,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0017_3725d65f.mp4",
+      "section": "HOOK",
+      "duration": 2.4166666666666643,
+      "kind": "photo"
+    },
+    {
+      "index": 18,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0018_a3c464bb.mp4",
+      "section": "HOOK",
+      "duration": 3.0,
+      "kind": "video"
+    },
+    {
+      "index": 19,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0019_178e604e.mp4",
+      "section": "HOOK",
+      "duration": 3.8333333333333357,
+      "kind": "photo"
+    },
+    {
+      "index": 20,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0020_054a08ea.mp4",
+      "section": "HOOK",
+      "duration": 3.1666666666666714,
+      "kind": "photo"
+    },
+    {
+      "index": 21,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0021_2d506c7b.mp4",
+      "section": "HOOK",
+      "duration": 3.4583333333333286,
+      "kind": "photo"
+    },
+    {
+      "index": 22,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0022_128c01a8.mp4",
+      "section": "HOOK",
+      "duration": 3.625,
+      "kind": "photo"
+    },
+    {
+      "index": 23,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0023_a658f0a9.mp4",
+      "section": "HOOK",
+      "duration": 2.8333333333333286,
+      "kind": "photo"
+    },
+    {
+      "index": 24,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0024_a7967c7a.mp4",
+      "section": "HOOK",
+      "duration": 3.1666666666666714,
+      "kind": "photo"
+    },
+    {
+      "index": 25,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0025_9c59f6b2.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 6.125,
+      "kind": "video"
+    },
+    {
+      "index": 26,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0026_185a5d74.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 7.375,
+      "kind": "photo"
+    },
+    {
+      "index": 27,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0027_a8ba4145.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 4.708333333333329,
+      "kind": "photo"
+    },
+    {
+      "index": 28,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0028_0504f5e7.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 8.375,
+      "kind": "photo"
+    },
+    {
+      "index": 29,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0029_a39eb22f.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 4.958333333333343,
+      "kind": "photo"
+    },
+    {
+      "index": 30,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0030_7fca6a26.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 8.208333333333329,
+      "kind": "video"
+    },
+    {
+      "index": 31,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0031_c3b2ccbc.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 3.6666666666666714,
+      "kind": "photo"
+    },
+    {
+      "index": 32,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0032_de0158e7.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 7.666666666666671,
+      "kind": "photo"
+    },
+    {
+      "index": 33,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0033_14ebddec.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 8.041666666666657,
+      "kind": "photo"
+    },
+    {
+      "index": 34,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0034_3bdc7fb5.mp4",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "duration": 11.625,
+      "kind": "video"
+    },
+    {
+      "index": 35,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0035_55f1adc8.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 9.125,
+      "kind": "photo"
+    },
+    {
+      "index": 36,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0036_fac70565.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 8.75,
+      "kind": "photo"
+    },
+    {
+      "index": 37,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0037_dc35098a.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 7.958333333333343,
+      "kind": "photo"
+    },
+    {
+      "index": 38,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0038_2ca4ef2c.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 7.791666666666657,
+      "kind": "photo"
+    },
+    {
+      "index": 39,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0039_5095fa39.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 5.791666666666657,
+      "kind": "video"
+    },
+    {
+      "index": 40,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0040_233eab9d.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 9.916666666666686,
+      "kind": "photo"
+    },
+    {
+      "index": 41,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0041_9181b431.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 3.416666666666657,
+      "kind": "photo"
+    },
+    {
+      "index": 42,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0042_f6f821ee.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 5.875,
+      "kind": "photo"
+    },
+    {
+      "index": 43,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0043_f57d4f48.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 4.166666666666657,
+      "kind": "video"
+    },
+    {
+      "index": 44,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0044_2a9032d2.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 7.708333333333343,
+      "kind": "photo"
+    },
+    {
+      "index": 45,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0045_87a27465.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 5.75,
+      "kind": "video"
+    },
+    {
+      "index": 46,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0046_098c5717.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 3.875,
+      "kind": "photo"
+    },
+    {
+      "index": 47,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0047_722a49df.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 9.916666666666657,
+      "kind": "video"
+    },
+    {
+      "index": 48,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0048_7b1b6e93.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 4.291666666666686,
+      "kind": "video"
+    },
+    {
+      "index": 49,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0049_040614c1.mp4",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "duration": 5.458333333333314,
+      "kind": "video"
+    },
+    {
+      "index": 50,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0050_74a9c839.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 5.5,
+      "kind": "photo"
+    },
+    {
+      "index": 51,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0051_beb727ca.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 4.375000000000028,
+      "kind": "photo"
+    },
+    {
+      "index": 52,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0052_e77fc162.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 9.083333333333314,
+      "kind": "photo"
+    },
+    {
+      "index": 53,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0053_8f786bea.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 5.708333333333314,
+      "kind": "video"
+    },
+    {
+      "index": 54,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0054_fdf8fb16.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 5.291666666666686,
+      "kind": "photo"
+    },
+    {
+      "index": 55,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0055_60fd5852.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 4.791666666666686,
+      "kind": "photo"
+    },
+    {
+      "index": 56,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0056_76b2b05f.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 3.0,
+      "kind": "photo"
+    },
+    {
+      "index": 57,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0057_4c1c8eb5.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 7.666666666666629,
+      "kind": "video"
+    },
+    {
+      "index": 58,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0058_5e76b759.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 3.7083333333333712,
+      "kind": "video"
+    },
+    {
+      "index": 59,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0059_ef8493d3.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 3.8333333333333144,
+      "kind": "video"
+    },
+    {
+      "index": 60,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0060_7def3f3f.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 4.625,
+      "kind": "photo"
+    },
+    {
+      "index": 61,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0061_758c37cf.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 7.375,
+      "kind": "photo"
+    },
+    {
+      "index": 62,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0062_c4c72df1.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 8.208333333333314,
+      "kind": "photo"
+    },
+    {
+      "index": 63,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0063_9f6e2680.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 3.625,
+      "kind": "photo"
+    },
+    {
+      "index": 64,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0064_029243a0.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 6.333333333333371,
+      "kind": "video"
+    },
+    {
+      "index": 65,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0065_984ff216.mp4",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "duration": 6.75,
+      "kind": "video"
+    },
+    {
+      "index": 66,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0066_996e1f22.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 7.875,
+      "kind": "photo"
+    },
+    {
+      "index": 67,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0067_b5a92b05.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 5.083333333333314,
+      "kind": "photo"
+    },
+    {
+      "index": 68,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0068_832f69be.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 5.416666666666686,
+      "kind": "photo"
+    },
+    {
+      "index": 69,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0069_70e2a19a.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 6.125,
+      "kind": "video"
+    },
+    {
+      "index": 70,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0070_e954c0fe.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 8.833333333333314,
+      "kind": "photo"
+    },
+    {
+      "index": 71,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0071_6eb77b1f.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 9.083333333333314,
+      "kind": "photo"
+    },
+    {
+      "index": 72,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0072_42fd45e9.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 4.5,
+      "kind": "photo"
+    },
+    {
+      "index": 73,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0073_b5467963.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 5.625,
+      "kind": "video"
+    },
+    {
+      "index": 74,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0074_c548d853.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 8.291666666666686,
+      "kind": "photo"
+    },
+    {
+      "index": 75,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0075_24ce27b9.mp4",
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "duration": 9.166666666666686,
+      "kind": "photo"
+    },
+    {
+      "index": 76,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0076_66cedca4.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 4.666666666666629,
+      "kind": "photo"
+    },
+    {
+      "index": 77,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0077_f8160df7.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 5.625,
+      "kind": "video"
+    },
+    {
+      "index": 78,
+      "status": "absorbed",
+      "reason": "no_media_at_all",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 3.6666666666666856
+    },
+    {
+      "index": 79,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0079_14de6314.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 10.083333333333371,
+      "kind": "video"
+    },
+    {
+      "index": 80,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0080_9af954b1.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 7.166666666666629,
+      "kind": "video"
+    },
+    {
+      "index": 81,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0081_f6127902.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 4.75,
+      "kind": "photo"
+    },
+    {
+      "index": 82,
+      "status": "absorbed",
+      "reason": "no_media_at_all",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 3.625
+    },
+    {
+      "index": 83,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0083_0f817301.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 8.625,
+      "kind": "video"
+    },
+    {
+      "index": 84,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0084_7ec74899.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 9.083333333333371,
+      "kind": "photo"
+    },
+    {
+      "index": 85,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0085_35df633d.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 6.708333333333314,
+      "kind": "video"
+    },
+    {
+      "index": 86,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0086_be33f067.mp4",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "duration": 4.5,
+      "kind": "photo"
+    },
+    {
+      "index": 87,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0087_da8141d7.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 6.25,
+      "kind": "photo"
+    },
+    {
+      "index": 88,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0088_eee14099.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 4.541666666666686,
+      "kind": "photo"
+    },
+    {
+      "index": 89,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0089_5096b243.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 4.75,
+      "kind": "video"
+    },
+    {
+      "index": 90,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0090_f1d9586b.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 5.833333333333314,
+      "kind": "video"
+    },
+    {
+      "index": 91,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0091_954edc69.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 4.333333333333314,
+      "kind": "video"
+    },
+    {
+      "index": 92,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0092_d3439ca9.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 4.791666666666686,
+      "kind": "video"
+    },
+    {
+      "index": 93,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0093_e74a5db2.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 4.041666666666686,
+      "kind": "video"
+    },
+    {
+      "index": 94,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0094_f47fbed4.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 7.125,
+      "kind": "video"
+    },
+    {
+      "index": 95,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0095_eccfdd67.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 6.124999999999943,
+      "kind": "photo"
+    },
+    {
+      "index": 96,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0096_02c656ef.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 9.625,
+      "kind": "video"
+    },
+    {
+      "index": 97,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0097_57fc9022.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 9.125,
+      "kind": "video"
+    },
+    {
+      "index": 98,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0098_502e162d.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 4.125,
+      "kind": "photo"
+    },
+    {
+      "index": 99,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0099_3a2b0378.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 5.5,
+      "kind": "photo"
+    },
+    {
+      "index": 100,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0100_0ece87bc.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 7.958333333333371,
+      "kind": "photo"
+    },
+    {
+      "index": 101,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0101_3e908227.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 5.916666666666629,
+      "kind": "video"
+    },
+    {
+      "index": 102,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0102_11516414.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 8.125,
+      "kind": "photo"
+    },
+    {
+      "index": 103,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0103_8abcfc61.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 6.333333333333371,
+      "kind": "photo"
+    },
+    {
+      "index": 104,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0104_7acd0554.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 3.5833333333333712,
+      "kind": "photo"
+    },
+    {
+      "index": 105,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0105_f3907c9b.mp4",
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "duration": 7.7083333333332575,
+      "kind": "video"
+    },
+    {
+      "index": 106,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0106_cdfee8b8.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 8.666666666666742,
+      "kind": "photo"
+    },
+    {
+      "index": 107,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0107_fc318da2.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 3.25,
+      "kind": "photo"
+    },
+    {
+      "index": 108,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0108_0a2d4553.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 3.2916666666666288,
+      "kind": "photo"
+    },
+    {
+      "index": 109,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0109_1aab7f36.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 3.4166666666666288,
+      "kind": "photo"
+    },
+    {
+      "index": 110,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0110_24649846.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 5.208333333333371,
+      "kind": "video"
+    },
+    {
+      "index": 111,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0111_cdb8afac.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 4.125,
+      "kind": "photo"
+    },
+    {
+      "index": 112,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0112_9575b339.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 4.791666666666629,
+      "kind": "photo"
+    },
+    {
+      "index": 113,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0113_692ca491.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 7.125,
+      "kind": "video"
+    },
+    {
+      "index": 114,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0114_9fcac0b8.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 8.958333333333371,
+      "kind": "photo"
+    },
+    {
+      "index": 115,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0115_ba15f1fb.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 5.625,
+      "kind": "photo"
+    },
+    {
+      "index": 116,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0116_de71fb56.mp4",
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "duration": 5.708333333333371,
+      "kind": "photo"
+    },
+    {
+      "index": 117,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0117_00a2320d.mp4",
+      "section": "FINAL",
+      "duration": 3.125,
+      "kind": "photo"
+    },
+    {
+      "index": 118,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0118_1fa8179e.mp4",
+      "section": "FINAL",
+      "duration": 5.2083333333332575,
+      "kind": "video"
+    },
+    {
+      "index": 119,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0119_07386ec0.mp4",
+      "section": "FINAL",
+      "duration": 7.75,
+      "kind": "photo"
+    },
+    {
+      "index": 120,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0120_dad40a26.mp4",
+      "section": "FINAL",
+      "duration": 7.7916666666667425,
+      "kind": "video"
+    },
+    {
+      "index": 121,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0121_8d177126.mp4",
+      "section": "FINAL",
+      "duration": 7.375,
+      "kind": "photo"
+    },
+    {
+      "index": 122,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0122_32815b50.mp4",
+      "section": "FINAL",
+      "duration": 5.25,
+      "kind": "video"
+    },
+    {
+      "index": 123,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0123_a3bb7288.mp4",
+      "section": "FINAL",
+      "duration": 6.5833333333332575,
+      "kind": "photo"
+    },
+    {
+      "index": 124,
+      "status": "ok",
+      "path": "videos/05_dospeh/temp_smart/clip_0124_55adeb8a.mp4",
+      "section": "FINAL",
+      "duration": 1.9166666666667425,
+      "kind": "photo"
+    }
+  ]
+}

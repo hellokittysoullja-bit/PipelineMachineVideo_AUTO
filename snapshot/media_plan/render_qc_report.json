@@ -1,0 +1,18 @@
+{
+  "flagged": [
+    {
+      "index": 20,
+      "source": "/home/user/PipelineMachineVideo_AUTO/videos/05_dospeh/temp_smart/pexels_cache/0020_415ce013_7d7dd32e4f.jpg",
+      "rendered": "videos/05_dospeh/temp_smart/clip_0020_054a08ea.mp4",
+      "ratio": 0.22850341117866202,
+      "threshold": 0.5
+    },
+    {
+      "index": 63,
+      "source": "/home/user/PipelineMachineVideo_AUTO/videos/05_dospeh/temp_smart/pexels_cache/0063_41e7565f_44be7428bd.jpg",
+      "rendered": "videos/05_dospeh/temp_smart/clip_0063_9f6e2680.mp4",
+      "ratio": 0.3974729277573911,
+      "threshold": 0.5
+    }
+  ]
+}
