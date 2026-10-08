@@ -1220,3 +1220,46 @@
 {"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791436390.124, "clip_idx": 21}
 {"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791436390.187, "clip_idx": 21}
 {"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791436390.208, "clip_idx": 21}
+{"stage": "siglip2", "t_wall": 2.8059, "ok": true, "pid": 416, "ts": 1791437213.051}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437213.051}
+{"stage": "slot_other_kind", "t_wall": 939.9321, "ok": true, "pid": 416, "ts": 1791437213.133, "clip_idx": 21, "kind": "photo"}
+{"stage": "cand_download_wait", "t_wall": 0.2753, "ok": true, "pid": 416, "ts": 1791437218.232, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437218.285, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437218.376, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437218.411, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437218.665, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437218.706, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437218.803, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437218.836, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437218.897, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437218.933, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.001, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437219.023, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.088, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437219.122, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.184, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791437219.216, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.277, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437219.317, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.373, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791437219.397, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.466, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791437219.5, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.576, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437219.599, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.655, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791437219.692, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.747, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791437219.773, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.83, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791437219.851, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437219.907, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437219.942, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437220.007, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437220.032, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437220.085, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791437220.115, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437220.168, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0003, "ok": true, "pid": 416, "ts": 1791437220.185, "clip_idx": 21}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791437220.262, "clip_idx": 21}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791437220.285, "clip_idx": 21}
