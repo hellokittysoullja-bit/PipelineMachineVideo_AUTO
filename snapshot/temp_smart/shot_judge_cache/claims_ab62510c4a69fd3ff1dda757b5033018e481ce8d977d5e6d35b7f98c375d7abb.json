@@ -1,0 +1,1 @@
+{"answers": {"claims": {"core": "yes", "c1": "no", "c2": "no", "c3": "no", "subject": "yes"}, "medium": "cg", "why": "The image is a 3D cartoon render of a knight in plate armor on a plain blue background, not a real museum object. It is a straight front view, not three-quarter, and lacks a display stand."}, "model": "qwen/qwen3.7-plus"}
