@@ -2849,3 +2849,250 @@
 {"stage": "slot_total", "t_wall": 100.2796, "ok": true, "pid": 26592, "ts": 1791453911.58, "clip_idx": 81}
 {"stage": "clip_render", "t_wall": 30.1831, "ok": true, "pid": 28757, "ts": 1791453941.767, "clip_idx": 81, "fn": "kenburns"}
 {"stage": "slot_total", "t_wall": 2.1653, "ok": true, "pid": 360, "ts": 1791459100.242, "clip_idx": 0}
+{"stage": "clip_render", "t_wall": 19.9179, "ok": true, "pid": 360, "ts": 1791459127.158, "clip_idx": 1, "fn": "parallax_kenburns"}
+{"stage": "slot_total", "t_wall": 26.9152, "ok": true, "pid": 360, "ts": 1791459127.158, "clip_idx": 1}
+{"stage": "slot_total", "t_wall": 0.1301, "ok": true, "pid": 360, "ts": 1791459127.288, "clip_idx": 2}
+{"stage": "slot_total", "t_wall": 0.154, "ok": true, "pid": 360, "ts": 1791459127.442, "clip_idx": 3}
+{"stage": "slot_total", "t_wall": 0.1222, "ok": true, "pid": 360, "ts": 1791459127.565, "clip_idx": 4}
+{"stage": "clip_render", "t_wall": 18.1593, "ok": true, "pid": 360, "ts": 1791459146.38, "clip_idx": 5, "fn": "parallax_kenburns"}
+{"stage": "slot_total", "t_wall": 18.8155, "ok": true, "pid": 360, "ts": 1791459146.38, "clip_idx": 5}
+{"stage": "slot_total", "t_wall": 0.167, "ok": true, "pid": 360, "ts": 1791459146.547, "clip_idx": 6}
+{"stage": "slot_total", "t_wall": 2.1733, "ok": true, "pid": 360, "ts": 1791459148.721, "clip_idx": 7}
+{"stage": "slot_total", "t_wall": 0.0879, "ok": true, "pid": 360, "ts": 1791459148.809, "clip_idx": 8}
+{"stage": "clip_render", "t_wall": 26.5373, "ok": true, "pid": 360, "ts": 1791459176.379, "clip_idx": 9, "fn": "parallax_kenburns"}
+{"stage": "slot_total", "t_wall": 27.5702, "ok": true, "pid": 360, "ts": 1791459176.379, "clip_idx": 9}
+{"stage": "slot_total", "t_wall": 0.0963, "ok": true, "pid": 360, "ts": 1791459176.476, "clip_idx": 10}
+{"stage": "slot_total", "t_wall": 0.0912, "ok": true, "pid": 360, "ts": 1791459176.567, "clip_idx": 11}
+{"stage": "slot_total", "t_wall": 0.0902, "ok": true, "pid": 360, "ts": 1791459176.657, "clip_idx": 12}
+{"stage": "slot_total", "t_wall": 0.1072, "ok": true, "pid": 360, "ts": 1791459176.765, "clip_idx": 13}
+{"stage": "slot_total", "t_wall": 0.0987, "ok": true, "pid": 360, "ts": 1791459176.864, "clip_idx": 14}
+{"stage": "slot_total", "t_wall": 0.1075, "ok": true, "pid": 360, "ts": 1791459176.971, "clip_idx": 15}
+{"stage": "slot_total", "t_wall": 0.1244, "ok": true, "pid": 360, "ts": 1791459177.096, "clip_idx": 16}
+{"stage": "slot_total", "t_wall": 0.1215, "ok": true, "pid": 360, "ts": 1791459177.218, "clip_idx": 17}
+{"stage": "slot_total", "t_wall": 3.0787, "ok": true, "pid": 360, "ts": 1791459180.296, "clip_idx": 18}
+{"stage": "slot_total", "t_wall": 0.1018, "ok": true, "pid": 360, "ts": 1791459180.398, "clip_idx": 19}
+{"stage": "slot_total", "t_wall": 0.1614, "ok": true, "pid": 360, "ts": 1791459180.56, "clip_idx": 20}
+{"stage": "slot_total", "t_wall": 0.1574, "ok": true, "pid": 360, "ts": 1791459180.717, "clip_idx": 21}
+{"stage": "slot_total", "t_wall": 0.1139, "ok": true, "pid": 360, "ts": 1791459180.831, "clip_idx": 22}
+{"stage": "slot_total", "t_wall": 0.1412, "ok": true, "pid": 360, "ts": 1791459180.973, "clip_idx": 23}
+{"stage": "slot_total", "t_wall": 0.1019, "ok": true, "pid": 360, "ts": 1791459181.075, "clip_idx": 24}
+{"stage": "slot_total", "t_wall": 0.0503, "ok": true, "pid": 360, "ts": 1791459181.125, "clip_idx": 25}
+{"stage": "slot_total", "t_wall": 0.0755, "ok": true, "pid": 360, "ts": 1791459181.201, "clip_idx": 26}
+{"stage": "slot_total", "t_wall": 0.0672, "ok": true, "pid": 360, "ts": 1791459181.268, "clip_idx": 27}
+{"stage": "slot_total", "t_wall": 0.1444, "ok": true, "pid": 360, "ts": 1791459181.412, "clip_idx": 28}
+{"stage": "slot_total", "t_wall": 0.0846, "ok": true, "pid": 360, "ts": 1791459181.497, "clip_idx": 29}
+{"stage": "slot_total", "t_wall": 1.4237, "ok": true, "pid": 360, "ts": 1791459182.921, "clip_idx": 30}
+{"stage": "slot_total", "t_wall": 0.1143, "ok": true, "pid": 360, "ts": 1791459183.035, "clip_idx": 31}
+{"stage": "slot_total", "t_wall": 0.1035, "ok": true, "pid": 360, "ts": 1791459183.139, "clip_idx": 32}
+{"stage": "slot_total", "t_wall": 1.8585, "ok": true, "pid": 360, "ts": 1791459184.997, "clip_idx": 33}
+{"stage": "slot_total", "t_wall": 1.3127, "ok": true, "pid": 360, "ts": 1791459186.31, "clip_idx": 34}
+{"stage": "slot_total", "t_wall": 0.0532, "ok": true, "pid": 360, "ts": 1791459186.364, "clip_idx": 35}
+{"stage": "slot_total", "t_wall": 1.3621, "ok": true, "pid": 360, "ts": 1791459187.726, "clip_idx": 36}
+{"stage": "slot_total", "t_wall": 1.2463, "ok": true, "pid": 360, "ts": 1791459188.972, "clip_idx": 37}
+{"stage": "slot_total", "t_wall": 0.078, "ok": true, "pid": 360, "ts": 1791459189.051, "clip_idx": 38}
+{"stage": "slot_total", "t_wall": 0.0654, "ok": true, "pid": 360, "ts": 1791459189.116, "clip_idx": 39}
+{"stage": "slot_total", "t_wall": 3.6617, "ok": true, "pid": 360, "ts": 1791459192.778, "clip_idx": 40}
+{"stage": "slot_total", "t_wall": 0.1051, "ok": true, "pid": 360, "ts": 1791459192.883, "clip_idx": 41}
+{"stage": "slot_total", "t_wall": 0.1213, "ok": true, "pid": 360, "ts": 1791459193.005, "clip_idx": 42}
+{"stage": "slot_total", "t_wall": 0.1667, "ok": true, "pid": 360, "ts": 1791459193.171, "clip_idx": 43}
+{"stage": "slot_total", "t_wall": 0.13, "ok": true, "pid": 360, "ts": 1791459193.301, "clip_idx": 44}
+{"stage": "slot_total", "t_wall": 4.2249, "ok": true, "pid": 360, "ts": 1791459197.526, "clip_idx": 45}
+{"stage": "slot_total", "t_wall": 1.4483, "ok": true, "pid": 360, "ts": 1791459198.975, "clip_idx": 46}
+{"stage": "clip_render", "t_wall": 49.7997, "ok": true, "pid": 1678, "ts": 1791459199.177, "clip_idx": 7, "fn": "video_render"}
+{"stage": "slot_total", "t_wall": 1.3705, "ok": true, "pid": 360, "ts": 1791459200.346, "clip_idx": 47}
+{"stage": "slot_total", "t_wall": 1.1283, "ok": true, "pid": 360, "ts": 1791459201.474, "clip_idx": 48}
+{"stage": "slot_total", "t_wall": 0.8922, "ok": true, "pid": 360, "ts": 1791459202.366, "clip_idx": 49}
+{"stage": "clip_render", "t_wall": 37.9635, "ok": true, "pid": 360, "ts": 1791459241.457, "clip_idx": 50, "fn": "parallax_kenburns"}
+{"stage": "slot_total", "t_wall": 39.0909, "ok": true, "pid": 360, "ts": 1791459241.457, "clip_idx": 50}
+{"stage": "slot_total", "t_wall": 1.4441, "ok": true, "pid": 360, "ts": 1791459242.902, "clip_idx": 51}
+{"stage": "slot_total", "t_wall": 0.0757, "ok": true, "pid": 360, "ts": 1791459242.977, "clip_idx": 52}
+{"stage": "slot_total", "t_wall": 1.6056, "ok": true, "pid": 360, "ts": 1791459244.583, "clip_idx": 53}
+{"stage": "slot_total", "t_wall": 0.126, "ok": true, "pid": 360, "ts": 1791459244.709, "clip_idx": 54}
+{"stage": "slot_total", "t_wall": 1.1244, "ok": true, "pid": 360, "ts": 1791459245.834, "clip_idx": 55}
+{"stage": "slot_total", "t_wall": 1.1437, "ok": true, "pid": 360, "ts": 1791459246.978, "clip_idx": 56}
+{"stage": "slot_total", "t_wall": 0.1549, "ok": true, "pid": 360, "ts": 1791459247.133, "clip_idx": 57}
+{"stage": "slot_total", "t_wall": 1.2678, "ok": true, "pid": 360, "ts": 1791459248.401, "clip_idx": 58}
+{"stage": "slot_total", "t_wall": 1.0589, "ok": true, "pid": 360, "ts": 1791459249.46, "clip_idx": 59}
+{"stage": "clip_render", "t_wall": 68.6269, "ok": true, "pid": 2340, "ts": 1791459249.475, "clip_idx": 18, "fn": "video_render"}
+{"stage": "slot_total", "t_wall": 0.0806, "ok": true, "pid": 360, "ts": 1791459249.54, "clip_idx": 60}
+{"stage": "slot_total", "t_wall": 0.1358, "ok": true, "pid": 360, "ts": 1791459249.676, "clip_idx": 61}
+{"stage": "slot_total", "t_wall": 0.151, "ok": true, "pid": 360, "ts": 1791459249.827, "clip_idx": 62}
+{"stage": "slot_total", "t_wall": 0.1236, "ok": true, "pid": 360, "ts": 1791459249.951, "clip_idx": 63}
+{"stage": "slot_total", "t_wall": 0.9945, "ok": true, "pid": 360, "ts": 1791459250.946, "clip_idx": 64}
+{"stage": "slot_total", "t_wall": 4.8472, "ok": true, "pid": 360, "ts": 1791459255.793, "clip_idx": 65}
+{"stage": "clip_render", "t_wall": 125.6927, "ok": true, "pid": 2369, "ts": 1791459309.216, "clip_idx": 30, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 54.8839, "ok": true, "pid": 360, "ts": 1791459316.005, "clip_idx": 66, "fn": "parallax_kenburns"}
+{"stage": "slot_total", "t_wall": 60.2122, "ok": true, "pid": 360, "ts": 1791459316.006, "clip_idx": 66}
+{"stage": "slot_total", "t_wall": 0.1077, "ok": true, "pid": 360, "ts": 1791459316.113, "clip_idx": 67}
+{"stage": "clip_render", "t_wall": 117.0124, "ok": true, "pid": 1678, "ts": 1791459316.19, "clip_idx": 33, "fn": "kenburns"}
+{"stage": "slot_total", "t_wall": 0.1275, "ok": true, "pid": 360, "ts": 1791459316.241, "clip_idx": 68}
+{"stage": "slot_total", "t_wall": 1.2948, "ok": true, "pid": 360, "ts": 1791459317.536, "clip_idx": 69}
+{"stage": "slot_total", "t_wall": 0.1369, "ok": true, "pid": 360, "ts": 1791459317.673, "clip_idx": 70}
+{"stage": "slot_total", "t_wall": 0.1369, "ok": true, "pid": 360, "ts": 1791459317.81, "clip_idx": 71}
+{"stage": "slot_total", "t_wall": 0.1227, "ok": true, "pid": 360, "ts": 1791459317.933, "clip_idx": 72}
+{"stage": "slot_total", "t_wall": 1.6799, "ok": true, "pid": 360, "ts": 1791459319.613, "clip_idx": 73}
+{"stage": "slot_total", "t_wall": 0.1979, "ok": true, "pid": 360, "ts": 1791459319.811, "clip_idx": 74}
+{"stage": "slot_total", "t_wall": 0.1046, "ok": true, "pid": 360, "ts": 1791459319.916, "clip_idx": 75}
+{"stage": "siglip2", "t_wall": 21.5156, "ok": true, "pid": 360, "ts": 1791459375.622}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459375.622}
+{"stage": "slot_first", "t_wall": 55.7162, "ok": true, "pid": 360, "ts": 1791459375.635, "clip_idx": 76}
+{"stage": "slot_total", "t_wall": 61.3152, "ok": true, "pid": 360, "ts": 1791459381.231, "clip_idx": 76}
+{"stage": "clip_render", "t_wall": 164.6644, "ok": true, "pid": 2340, "ts": 1791459414.141, "clip_idx": 34, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 37.5818, "ok": true, "pid": 360, "ts": 1791459420.401, "clip_idx": 77, "fn": "parallax_kenburns"}
+{"stage": "slot_total", "t_wall": 39.1699, "ok": true, "pid": 360, "ts": 1791459420.401, "clip_idx": 77}
+{"stage": "cand_download_wait", "t_wall": 0.2711, "ok": true, "pid": 360, "ts": 1791459426.811, "clip_idx": 78}
+{"stage": "cheap_gate_clip", "t_wall": 1.099, "ok": true, "pid": 360, "ts": 1791459427.968, "clip_idx": 78}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459427.98, "clip_idx": 78}
+{"stage": "cheap_gate_clip", "t_wall": 0.523, "ok": true, "pid": 360, "ts": 1791459428.545, "clip_idx": 78}
+{"stage": "cand_download_wait", "t_wall": 1.2312, "ok": false, "pid": 360, "ts": 1791459429.788, "clip_idx": 78}
+{"stage": "clip_render", "t_wall": 121.3336, "ok": true, "pid": 2369, "ts": 1791459430.555, "clip_idx": 36, "fn": "kenburns"}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459433.236, "clip_idx": 78}
+{"stage": "cheap_gate_clip", "t_wall": 0.4254, "ok": true, "pid": 360, "ts": 1791459433.801, "clip_idx": 78}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459433.828, "clip_idx": 78}
+{"stage": "cheap_gate_clip", "t_wall": 0.4372, "ok": true, "pid": 360, "ts": 1791459434.327, "clip_idx": 78}
+{"stage": "clip_render", "t_wall": 121.4101, "ok": true, "pid": 1678, "ts": 1791459437.602, "clip_idx": 37, "fn": "kenburns"}
+{"stage": "siglip2", "t_wall": 0.5056, "ok": true, "pid": 360, "ts": 1791459438.473}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459438.473}
+{"stage": "slot_first", "t_wall": 18.3226, "ok": true, "pid": 360, "ts": 1791459438.724, "clip_idx": 78}
+{"stage": "slot_total", "t_wall": 19.7446, "ok": true, "pid": 360, "ts": 1791459440.146, "clip_idx": 78}
+{"stage": "clip_render", "t_wall": 31.1515, "ok": true, "pid": 1678, "ts": 1791459468.754, "clip_idx": 46, "fn": "kenburns"}
+{"stage": "cand_download_wait", "t_wall": 0.7608, "ok": true, "pid": 360, "ts": 1791459482.134, "clip_idx": 79}
+{"stage": "cheap_gate_clip", "t_wall": 0.5431, "ok": true, "pid": 360, "ts": 1791459482.72, "clip_idx": 79}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459482.729, "clip_idx": 79}
+{"stage": "cheap_gate_clip", "t_wall": 0.2591, "ok": true, "pid": 360, "ts": 1791459483.032, "clip_idx": 79}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459483.124, "clip_idx": 79}
+{"stage": "cheap_gate_clip", "t_wall": 0.3095, "ok": true, "pid": 360, "ts": 1791459483.492, "clip_idx": 79}
+{"stage": "cand_download_wait", "t_wall": 1.3553, "ok": false, "pid": 360, "ts": 1791459484.965, "clip_idx": 79}
+{"stage": "clip_render", "t_wall": 56.5582, "ok": true, "pid": 2369, "ts": 1791459487.114, "clip_idx": 45, "fn": "video_render"}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459488.186, "clip_idx": 79}
+{"stage": "cheap_gate_clip", "t_wall": 0.3392, "ok": true, "pid": 360, "ts": 1791459488.573, "clip_idx": 79}
+{"stage": "siglip2", "t_wall": 5.9488, "ok": true, "pid": 360, "ts": 1791459495.407}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459495.407}
+{"stage": "slot_first", "t_wall": 55.4046, "ok": true, "pid": 360, "ts": 1791459495.551, "clip_idx": 79}
+{"stage": "slot_total", "t_wall": 56.9125, "ok": true, "pid": 360, "ts": 1791459497.058, "clip_idx": 79}
+{"stage": "slot_total", "t_wall": 1.1295, "ok": true, "pid": 360, "ts": 1791459498.188, "clip_idx": 80}
+{"stage": "slot_total", "t_wall": 1.2933, "ok": true, "pid": 360, "ts": 1791459499.481, "clip_idx": 81}
+{"stage": "clip_render", "t_wall": 98.6718, "ok": true, "pid": 2340, "ts": 1791459512.825, "clip_idx": 40, "fn": "video_render"}
+{"stage": "clip_render", "t_wall": 38.5493, "ok": true, "pid": 2369, "ts": 1791459525.664, "clip_idx": 48, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 79.9756, "ok": true, "pid": 1678, "ts": 1791459548.73, "clip_idx": 47, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 39.6281, "ok": true, "pid": 2340, "ts": 1791459552.453, "clip_idx": 49, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 33.2196, "ok": true, "pid": 2369, "ts": 1791459558.884, "clip_idx": 51, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 22.6651, "ok": true, "pid": 2369, "ts": 1791459581.55, "clip_idx": 56, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 35.0178, "ok": true, "pid": 2340, "ts": 1791459587.472, "clip_idx": 55, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 41.6309, "ok": true, "pid": 1678, "ts": 1791459590.361, "clip_idx": 53, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 27.3142, "ok": true, "pid": 2369, "ts": 1791459608.874, "clip_idx": 58, "fn": "kenburns"}
+{"stage": "cand_download_wait", "t_wall": 0.3232, "ok": true, "pid": 360, "ts": 1791459609.168, "clip_idx": 82}
+{"stage": "cheap_gate_clip", "t_wall": 0.7917, "ok": true, "pid": 360, "ts": 1791459610.029, "clip_idx": 82}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459610.161, "clip_idx": 82}
+{"stage": "cheap_gate_clip", "t_wall": 0.7746, "ok": true, "pid": 360, "ts": 1791459610.978, "clip_idx": 82}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459610.994, "clip_idx": 82}
+{"stage": "cheap_gate_clip", "t_wall": 0.4026, "ok": true, "pid": 360, "ts": 1791459611.492, "clip_idx": 82}
+{"stage": "cand_download_wait", "t_wall": 0.7095, "ok": false, "pid": 360, "ts": 1791459612.322, "clip_idx": 82}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459615.666, "clip_idx": 82}
+{"stage": "cheap_gate_clip", "t_wall": 0.3716, "ok": true, "pid": 360, "ts": 1791459616.149, "clip_idx": 82}
+{"stage": "clip_render", "t_wall": 30.8115, "ok": true, "pid": 2340, "ts": 1791459618.284, "clip_idx": 59, "fn": "kenburns"}
+{"stage": "siglip2", "t_wall": 5.7995, "ok": true, "pid": 360, "ts": 1791459629.608}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459629.608}
+{"stage": "siglip2", "t_wall": 0.0003, "ok": true, "pid": 360, "ts": 1791459632.765}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459632.766}
+{"stage": "siglip2", "t_wall": 0.0002, "ok": true, "pid": 360, "ts": 1791459634.023}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459634.024}
+{"stage": "siglip2", "t_wall": 0.0002, "ok": true, "pid": 360, "ts": 1791459637.219}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459637.219}
+{"stage": "slot_first", "t_wall": 137.7375, "ok": true, "pid": 360, "ts": 1791459637.22, "clip_idx": 82}
+{"stage": "slot_total", "t_wall": 137.7398, "ok": true, "pid": 360, "ts": 1791459637.221, "clip_idx": 82}
+{"stage": "slot_total", "t_wall": 4.2594, "ok": true, "pid": 360, "ts": 1791459641.481, "clip_idx": 83}
+{"stage": "clip_render", "t_wall": 56.2525, "ok": true, "pid": 1678, "ts": 1791459646.614, "clip_idx": 64, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 55.2906, "ok": true, "pid": 2340, "ts": 1791459673.575, "clip_idx": 69, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 73.1076, "ok": true, "pid": 2369, "ts": 1791459681.982, "clip_idx": 65, "fn": "video_render"}
+{"stage": "clip_render", "t_wall": 46.9375, "ok": true, "pid": 1678, "ts": 1791459693.552, "clip_idx": 73, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 32.4341, "ok": true, "pid": 2369, "ts": 1791459714.417, "clip_idx": 78, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 43.0933, "ok": true, "pid": 2340, "ts": 1791459716.669, "clip_idx": 76, "fn": "video_render"}
+{"stage": "cand_download_wait", "t_wall": 0.5764, "ok": true, "pid": 360, "ts": 1791459721.941, "clip_idx": 84}
+{"stage": "cheap_gate_clip", "t_wall": 0.4601, "ok": true, "pid": 360, "ts": 1791459722.437, "clip_idx": 84}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459722.456, "clip_idx": 84}
+{"stage": "cheap_gate_clip", "t_wall": 0.4364, "ok": true, "pid": 360, "ts": 1791459722.954, "clip_idx": 84}
+{"stage": "cand_download_wait", "t_wall": 1.8732, "ok": false, "pid": 360, "ts": 1791459725.027, "clip_idx": 84}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459728.18, "clip_idx": 84}
+{"stage": "cheap_gate_clip", "t_wall": 0.4891, "ok": true, "pid": 360, "ts": 1791459728.758, "clip_idx": 84}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459728.912, "clip_idx": 84}
+{"stage": "cheap_gate_clip", "t_wall": 0.3071, "ok": true, "pid": 360, "ts": 1791459729.261, "clip_idx": 84}
+{"stage": "siglip2", "t_wall": 6.4925, "ok": true, "pid": 360, "ts": 1791459739.474}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459739.475}
+{"stage": "slot_first", "t_wall": 98.0617, "ok": true, "pid": 360, "ts": 1791459739.543, "clip_idx": 84}
+{"stage": "slot_total", "t_wall": 99.2417, "ok": true, "pid": 360, "ts": 1791459740.723, "clip_idx": 84}
+{"stage": "slot_total", "t_wall": 1.7673, "ok": true, "pid": 360, "ts": 1791459742.49, "clip_idx": 85}
+{"stage": "slot_total", "t_wall": 3.5746, "ok": true, "pid": 360, "ts": 1791459746.065, "clip_idx": 86}
+{"stage": "slot_total", "t_wall": 0.0998, "ok": true, "pid": 360, "ts": 1791459746.165, "clip_idx": 87}
+{"stage": "slot_total", "t_wall": 0.1243, "ok": true, "pid": 360, "ts": 1791459746.289, "clip_idx": 88}
+{"stage": "slot_total", "t_wall": 0.1113, "ok": true, "pid": 360, "ts": 1791459746.401, "clip_idx": 89}
+{"stage": "slot_total", "t_wall": 1.1053, "ok": true, "pid": 360, "ts": 1791459747.506, "clip_idx": 90}
+{"stage": "slot_total", "t_wall": 1.5689, "ok": true, "pid": 360, "ts": 1791459749.075, "clip_idx": 91}
+{"stage": "clip_render", "t_wall": 57.1019, "ok": true, "pid": 1678, "ts": 1791459750.654, "clip_idx": 79, "fn": "kenburns"}
+{"stage": "slot_total", "t_wall": 3.0317, "ok": true, "pid": 360, "ts": 1791459752.107, "clip_idx": 92}
+{"stage": "slot_total", "t_wall": 1.0958, "ok": true, "pid": 360, "ts": 1791459753.203, "clip_idx": 93}
+{"stage": "slot_total", "t_wall": 1.1895, "ok": true, "pid": 360, "ts": 1791459754.393, "clip_idx": 94}
+{"stage": "slot_total", "t_wall": 0.0917, "ok": true, "pid": 360, "ts": 1791459754.485, "clip_idx": 95}
+{"stage": "slot_total", "t_wall": 3.6801, "ok": true, "pid": 360, "ts": 1791459758.165, "clip_idx": 96}
+{"stage": "slot_total", "t_wall": 0.9359, "ok": true, "pid": 360, "ts": 1791459759.101, "clip_idx": 97}
+{"stage": "slot_total", "t_wall": 1.5691, "ok": true, "pid": 360, "ts": 1791459760.671, "clip_idx": 98}
+{"stage": "slot_total", "t_wall": 0.1841, "ok": true, "pid": 360, "ts": 1791459760.855, "clip_idx": 99}
+{"stage": "slot_total", "t_wall": 0.919, "ok": true, "pid": 360, "ts": 1791459761.774, "clip_idx": 100}
+{"stage": "slot_total", "t_wall": 0.1222, "ok": true, "pid": 360, "ts": 1791459761.896, "clip_idx": 101}
+{"stage": "clip_render", "t_wall": 51.3367, "ok": true, "pid": 2340, "ts": 1791459768.006, "clip_idx": 81, "fn": "kenburns"}
+{"stage": "siglip2", "t_wall": 0.508, "ok": true, "pid": 360, "ts": 1791459791.161}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459791.161}
+{"stage": "slot_first", "t_wall": 29.2665, "ok": true, "pid": 360, "ts": 1791459791.164, "clip_idx": 102}
+{"stage": "clip_render", "t_wall": 79.6061, "ok": true, "pid": 2369, "ts": 1791459794.024, "clip_idx": 80, "fn": "kenburns"}
+{"stage": "slot_total", "t_wall": 32.8352, "ok": true, "pid": 360, "ts": 1791459794.732, "clip_idx": 102}
+{"stage": "clip_render", "t_wall": 87.5545, "ok": true, "pid": 1678, "ts": 1791459838.209, "clip_idx": 83, "fn": "video_render"}
+{"stage": "clip_render", "t_wall": 48.3968, "ok": true, "pid": 2369, "ts": 1791459842.421, "clip_idx": 85, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 82.1857, "ok": true, "pid": 2340, "ts": 1791459850.192, "clip_idx": 84, "fn": "kenburns"}
+{"stage": "cand_download_wait", "t_wall": 0.6653, "ok": true, "pid": 360, "ts": 1791459850.377, "clip_idx": 103}
+{"stage": "cheap_gate_clip", "t_wall": 0.5679, "ok": true, "pid": 360, "ts": 1791459851.057, "clip_idx": 103}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459851.346, "clip_idx": 103}
+{"stage": "cheap_gate_clip", "t_wall": 0.3432, "ok": true, "pid": 360, "ts": 1791459851.73, "clip_idx": 103}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459851.833, "clip_idx": 103}
+{"stage": "cheap_gate_clip", "t_wall": 0.4534, "ok": true, "pid": 360, "ts": 1791459852.66, "clip_idx": 103}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459852.808, "clip_idx": 103}
+{"stage": "cheap_gate_clip", "t_wall": 0.3286, "ok": true, "pid": 360, "ts": 1791459853.238, "clip_idx": 103}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459853.402, "clip_idx": 103}
+{"stage": "cheap_gate_clip", "t_wall": 0.3253, "ok": true, "pid": 360, "ts": 1791459853.773, "clip_idx": 103}
+{"stage": "siglip2", "t_wall": 7.0628, "ok": true, "pid": 360, "ts": 1791459862.376}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791459862.381}
+{"stage": "slot_first", "t_wall": 68.0215, "ok": true, "pid": 360, "ts": 1791459862.754, "clip_idx": 103}
+{"stage": "slot_total", "t_wall": 69.4627, "ok": true, "pid": 360, "ts": 1791459864.195, "clip_idx": 103}
+{"stage": "clip_render", "t_wall": 46.5842, "ok": true, "pid": 1678, "ts": 1791459884.794, "clip_idx": 86, "fn": "video_render"}
+{"stage": "clip_render", "t_wall": 47.9512, "ok": true, "pid": 2369, "ts": 1791459890.372, "clip_idx": 90, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 44.6972, "ok": true, "pid": 2340, "ts": 1791459894.89, "clip_idx": 91, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 30.927, "ok": true, "pid": 2369, "ts": 1791459921.3, "clip_idx": 93, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 36.5513, "ok": true, "pid": 1678, "ts": 1791459921.346, "clip_idx": 92, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 53.0608, "ok": true, "pid": 2340, "ts": 1791459947.951, "clip_idx": 94, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 32.1391, "ok": true, "pid": 2340, "ts": 1791459980.091, "clip_idx": 98, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 73.5685, "ok": true, "pid": 1678, "ts": 1791459994.915, "clip_idx": 97, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 86.5406, "ok": true, "pid": 2369, "ts": 1791460007.841, "clip_idx": 96, "fn": "video_render"}
+{"stage": "cand_download_wait", "t_wall": 0.6654, "ok": true, "pid": 360, "ts": 1791460022.711, "clip_idx": 104}
+{"stage": "cheap_gate_clip", "t_wall": 1.2978, "ok": true, "pid": 360, "ts": 1791460024.236, "clip_idx": 104}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791460024.42, "clip_idx": 104}
+{"stage": "cheap_gate_clip", "t_wall": 0.4989, "ok": true, "pid": 360, "ts": 1791460025.055, "clip_idx": 104}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791460025.19, "clip_idx": 104}
+{"stage": "cheap_gate_clip", "t_wall": 0.3678, "ok": true, "pid": 360, "ts": 1791460025.669, "clip_idx": 104}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791460025.691, "clip_idx": 104}
+{"stage": "cheap_gate_clip", "t_wall": 0.33, "ok": true, "pid": 360, "ts": 1791460026.119, "clip_idx": 104}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791460026.137, "clip_idx": 104}
+{"stage": "cheap_gate_clip", "t_wall": 0.2676, "ok": true, "pid": 360, "ts": 1791460026.461, "clip_idx": 104}
+{"stage": "siglip2", "t_wall": 0.9615, "ok": true, "pid": 360, "ts": 1791460031.036}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791460031.036}
+{"stage": "slot_first", "t_wall": 167.0843, "ok": true, "pid": 360, "ts": 1791460031.279, "clip_idx": 104}
+{"stage": "slot_total", "t_wall": 169.0513, "ok": true, "pid": 360, "ts": 1791460033.246, "clip_idx": 104}
+{"stage": "clip_render", "t_wall": 66.6791, "ok": true, "pid": 2340, "ts": 1791460046.77, "clip_idx": 100, "fn": "kenburns"}
+{"stage": "siglip2", "t_wall": 0.4579, "ok": true, "pid": 360, "ts": 1791460055.66}
+{"stage": "jina_img", "t_wall": 0.0, "ok": true, "pid": 360, "ts": 1791460055.66}
+{"stage": "slot_first", "t_wall": 22.4151, "ok": true, "pid": 360, "ts": 1791460055.662, "clip_idx": 105}
+{"stage": "slot_total", "t_wall": 26.4946, "ok": true, "pid": 360, "ts": 1791460059.741, "clip_idx": 105}
+{"stage": "slot_total", "t_wall": 0.0655, "ok": true, "pid": 360, "ts": 1791460059.807, "clip_idx": 106}
+{"stage": "slot_total", "t_wall": 0.09, "ok": true, "pid": 360, "ts": 1791460059.897, "clip_idx": 107}
+{"stage": "slot_total", "t_wall": 1.0231, "ok": true, "pid": 360, "ts": 1791460060.92, "clip_idx": 108}
+{"stage": "slot_total", "t_wall": 1.7854, "ok": true, "pid": 360, "ts": 1791460062.706, "clip_idx": 109}
+{"stage": "slot_total", "t_wall": 1.3602, "ok": true, "pid": 360, "ts": 1791460064.066, "clip_idx": 110}
+{"stage": "slot_total", "t_wall": 0.1436, "ok": true, "pid": 360, "ts": 1791460064.21, "clip_idx": 111}
