@@ -8,7 +8,7 @@ EP=videos/05_dospeh
 LOG=$EP/overnight.log
 PIDF=$EP/overnight.pid
 MAX_RESTARTS=${MAX_RESTARTS:-60}
-if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
+if [ -f "$PIDF" ] && grep -q "overnight.sh" "/proc/$(cat "$PIDF")/cmdline" 2>/dev/null; then
   echo "$(date -u +%FT%TZ) надзиратель уже жив (pid $(cat "$PIDF"))" >> "$LOG"; exit 0
 fi
 echo $$ > "$PIDF"

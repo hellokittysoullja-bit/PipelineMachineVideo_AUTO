@@ -10,7 +10,7 @@ EP=videos/05_dospeh
 LOG=$EP/watchdog.log
 PIDF=$EP/watchdog.pid
 STALL_SEC=${STALL_SEC:-1500}
-if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then exit 0; fi
+if [ -f "$PIDF" ] && grep -q "watchdog.sh" "/proc/$(cat "$PIDF")/cmdline" 2>/dev/null; then exit 0; fi
 echo $$ > "$PIDF"
 say() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 say "сторож запущен"
@@ -22,7 +22,7 @@ while true; do
   esac
   [ -f $EP/overnight.stop ] && { say "стоп-файл, выхожу"; rm -f "$PIDF"; exit 0; }
   sup=$(cat $EP/overnight.pid 2>/dev/null)
-  if [ -f $EP/audio_fixed.flac ] && ! { [ -n "$sup" ] && kill -0 "$sup" 2>/dev/null; }; then
+  if [ -f $EP/audio_fixed.flac ] && ! { [ -n "$sup" ] && grep -q overnight.sh "/proc/$sup/cmdline" 2>/dev/null; }; then
     say "надзиратель мёртв (state='$state') -> поднимаю"
     rm -f $EP/overnight.pid
     case "$state" in gave_up*) mv $EP/overnight.state $EP/overnight.state.gaveup.$(date +%s);; esac

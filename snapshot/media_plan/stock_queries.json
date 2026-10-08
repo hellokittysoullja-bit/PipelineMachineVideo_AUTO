@@ -2421,6 +2421,1735 @@
     }
    ],
    "bsig": "2c1f7617f94f"
+  },
+  "2fb2044317ebfa34": {
+   "focus": "a second Swiss study published years later",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a printed scientific paper is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the paper has a Swiss university or institute name",
+     "tier": "should"
+    },
+    {
+     "id": "c2",
+     "text": "the paper has charts or graphs",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "scientific paper charts",
+    "research publication cover",
+    "academic journal article"
+   ],
+   "subject": "a study",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Через несколько лет вышла вторая работа, из Швейцарии.",
+   "queries_for": [
+    {
+     "q": "scientific paper charts",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "research publication cover",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "academic journal article",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "db8e97ad8b1c"
+  },
+  "1c56000f32cbce1e": {
+   "focus": "Daniel Jaquet leading the research",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a man in modern clothing is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the man is in a laboratory or archive setting",
+     "tier": "should"
+    },
+    {
+     "id": "c2",
+     "text": "the man is examining armour or manuscripts",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "historian examining armour",
+    "researcher in archive",
+    "man studying manuscripts"
+   ],
+   "subject": "a researcher",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Её вёл Даниэль Жаке, исследователь европейского фехтования.",
+   "queries_for": [
+    {
+     "q": "historian examining armour",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "researcher in archive",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "man studying manuscripts",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "0566ad74b37fcf79": {
+   "focus": "a single tall experienced test subject",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a tall man in a gothic armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the man is standing upright",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour is gothic style",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "man in gothic armour",
+    "armoured knight standing",
+    "tall man plate armour"
+   ],
+   "subject": "a man",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Подопытный здесь один: мужчина тридцати лет, рост метр восемьдесят шесть, вес восемьдесят четыре килограмма, с большим опытом.",
+   "queries_for": [
+    {
+     "q": "man in gothic armour",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured knight standing",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "tall man plate armour",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "1d785458ac40"
+  },
+  "fe04157236472a00": {
+   "focus": "armour based on Paul Kal's 1470s manuscript",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a gothic plate armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour is displayed on a stand",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour has fluted gothic details",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "gothic plate armour stand",
+    "1470s armour museum",
+    "paul kal manuscript"
+   ],
+   "subject": "an armour",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Доспех сделан по рукописи фехтовальщика Пауля Кала из тысяча четыреста семидесятых.",
+   "queries_for": [
+    {
+     "q": "gothic plate armour stand",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "1470s armour museum",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "paul kal manuscript",
+     "for": [
+      "core"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": ""
+  },
+  "4cf1dca98ecb6b5c": {
+   "focus": "armour weighing nearly forty kilograms with padding",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a complete plate armour with padding is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour is on a weighing scale",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a padded undergarment is visible",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armour on scale",
+    "plate armour with padding",
+    "weighing armour"
+   ],
+   "subject": "an armour",
+   "model": "ds/deepseek-v4-flash",
+   "text": "С поддоспешником почти сорок килограммов, то есть тяжелее, чем у лидской четвёрки.",
+   "queries_for": [
+    {
+     "q": "armour on scale",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "plate armour with padding",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "weighing armour",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "cccc3454f841bea4": {
+   "focus": "energy expenditure increased by sixty-six percent",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a bar chart showing a sixty-six percent increase is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the chart has two bars comparing energy use",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the chart has a label for sixty-six percent",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "energy expenditure chart",
+    "bar chart increase",
+    "metabolic cost graph"
+   ],
+   "subject": "a chart",
+   "model": "ds/deepseek-v4-flash",
+   "text": "И вот результат: расход энергии вырос на шестьдесят шесть процентов.",
+   "queries_for": [
+    {
+     "q": "energy expenditure chart",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "bar chart increase",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "metabolic cost graph",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "e09f7ff2ce63"
+  },
+  "9aae41dd81ea591c": {
+   "focus": "less energy than Leeds despite heavier armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "two charts side by side are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "one chart shows a higher value than the other",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the charts are labelled with different studies",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "comparison charts side by side",
+    "two graphs comparison",
+    "study results comparison"
+   ],
+   "subject": "a comparison",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Меньше, чем в Лидсе, хотя доспех тяжелее.",
+   "queries_for": [
+    {
+     "q": "comparison charts side by side",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "two graphs comparison",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "study results comparison",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "598cdb05925295e4": {
+   "focus": "gait almost unchanged, small joint angle differences",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured man walking is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the man is walking in armour",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the man is on a treadmill or track",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured man walking",
+    "knight walking treadmill",
+    "gait analysis armour"
+   ],
+   "subject": "a gait",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Походка почти не изменилась: углы в суставах отличались в среднем на два с половиной градуса, в голеностопе на одиннадцать.",
+   "queries_for": [
+    {
+     "q": "armoured man walking",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight walking treadmill",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "gait analysis armour",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "e4a5d49c0f16"
+  },
+  "d7fc774f81921d56": {
+   "focus": "armour did not restrict most combat movements",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured man performing a combat move is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the man is swinging a sword or weapon",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the man is in full plate armour",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "armoured knight sword swing",
+    "combat movement armour",
+    "knight fighting in armour"
+   ],
+   "subject": "an armour",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Большинство движений, нужных в бою, доспех не ограничивал.",
+   "queries_for": [
+    {
+     "q": "armoured knight sword swing",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "combat movement armour",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight fighting in armour",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "8f2df7b226a0b8ec": {
+   "focus": "rising from the ground easily, captured on video",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured man rising from the ground is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the man is getting up from a kneeling or lying position",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the man is in full plate armour",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "armoured knight getting up",
+    "knight rising from ground",
+    "armour stand up video"
+   ],
+   "subject": "a man",
+   "model": "ds/deepseek-v4-flash",
+   "text": "А с земли человек вставал легко, и это снято на видео.",
+   "queries_for": [
+    {
+     "q": "armoured knight getting up",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight rising from ground",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armour stand up video",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "434eb71866e2c15e": {
+   "focus": "no one knows why the numbers differ",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person shrugging with a puzzled expression is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the person is in a laboratory or study setting",
+     "tier": "should"
+    },
+    {
+     "id": "c2",
+     "text": "the person is looking at data or charts",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "researcher shrugging puzzled",
+    "confused scientist looking data",
+    "person questioning results"
+   ],
+   "subject": "a question",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Почему цифры разошлись? Честный ответ: точно никто не знает.",
+   "queries_for": [
+    {
+     "q": "researcher shrugging puzzled",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "confused scientist looking data",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "person questioning results",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "a5eb58d911b0"
+  },
+  "050eab106d196332": {
+   "focus": "one person versus four, different variables",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a single armoured figure and a group of four armoured figures are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the single figure is on one side",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the group of four is on the other side",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "one knight versus four knights",
+    "group of armoured men",
+    "single armoured man"
+   ],
+   "subject": "a comparison",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Один человек против четверых, разные доспехи, разная одежда под ними, разная методика.",
+   "queries_for": [
+    {
+     "q": "one knight versus four knights",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "group of armoured men",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "single armoured man",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "46f8577a6ad649c4": {
+   "focus": "Swiss armour is foot tournament type, field armour lighter",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a foot tournament armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour is heavy and reinforced",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour is displayed next to a lighter field armour",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "foot tournament armour",
+    "field armour lighter",
+    "tournament plate armour museum"
+   ],
+   "subject": "an armour",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Сами швейцарцы оговариваются: их доспех пешего турнирного типа, а полевой обычно легче на пять-десять килограммов.",
+   "queries_for": [
+    {
+     "q": "foot tournament armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "field armour lighter",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "tournament plate armour museum",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "eb56a098f288"
+  },
+  "3511e55a4af03a01": {
+   "focus": "clothing under armour may hinder more than plates",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a padded undergarment is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the undergarment is thick and quilted",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the undergarment is shown next to plate armour",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "padded undergarment armour",
+    "arming doublet",
+    "quilted jacket medieval"
+   ],
+   "subject": "clothing",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Одежда под доспехом могла мешать сильнее самих пластин.",
+   "queries_for": [
+    {
+     "q": "padded undergarment armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "arming doublet",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "quilted jacket medieval",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "f91f3a468e00ac78": {
+   "focus": "Leeds copies are decades younger than Crecy and Agincourt",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a modern replica armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour is a replica, not an original",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour is displayed in a museum or workshop",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "replica armour museum",
+    "modern copy plate armour",
+    "armour reproduction"
+   ],
+   "subject": "an armour",
+   "model": "ds/deepseek-v4-flash",
+   "text": "А лидские копии, по их словам, на десятилетия моложе битв при Креси и Азенкуре.",
+   "queries_for": [
+    {
+     "q": "replica armour museum",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "modern copy plate armour",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "armour reproduction",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "6d3a8ad60ebd2008": {
+   "focus": "exhausted fighters pausing to rest and bind wounds",
+   "claims": [
+    {
+     "id": "core",
+     "text": "exhausted fighters are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "fighters sit or lean in weariness",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "one fighter binds a wound",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "weapons rest on the ground",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "exhausted medieval fighters rest",
+    "medieval battle pause",
+    "froissart chronicle battle miniature",
+    "wounded soldier bandage"
+   ],
+   "subject": "exhausted fighters",
+   "model": "ds/deepseek-v4-pro",
+   "text": "По Фруассару, после нескольких часов обе стороны выдохлись и сошлись на перерыв: освежиться и перевязать раны.",
+   "queries_for": [
+    {
+     "q": "exhausted medieval fighters rest",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval battle pause",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "froissart chronicle battle miniature",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "wounded soldier bandage",
+     "for": [
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "5799c981d669f943": {
+   "focus": "armour of the period was not full plate",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a coat of plates is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "armour covers torso with riveted plates",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "mail covers arms and legs",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "no full plate limbs",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "coat of plates armour",
+    "14th century knight armour",
+    "brigandine museum",
+    "mail hauberk"
+   ],
+   "subject": "a coat of plates",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Правда, полных латных доспехов тогда ещё не носили, так что это намёк, а не доказательство.",
+   "queries_for": [
+    {
+     "q": "coat of plates armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "14th century knight armour",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "brigandine museum",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "mail hauberk",
+     "for": [
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "fdb50588f399a78d": {
+   "focus": "a manuscript drawing of armoured knights pausing in battle",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a manuscript drawing is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "armoured knights pause in battle",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the drawing is a medieval manuscript miniature",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "weapons are lowered or held idle",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "medieval manuscript knights battle",
+    "armoured knights pause miniature",
+    "chronicle battle illumination",
+    "froissart manuscript miniature"
+   ],
+   "subject": "a manuscript drawing",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Складывается картина, которую не покажешь на дорожке.",
+   "queries_for": [
+    {
+     "q": "medieval manuscript knights battle",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "armoured knights pause miniature",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "chronicle battle illumination",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "froissart manuscript miniature",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "fceb4e8fe7c9"
+  },
+  "ed81001092e476b4": {
+   "focus": "armoured combat moved in bursts of clash, throw, pause",
+   "claims": [
+    {
+     "id": "core",
+     "text": "armoured fighters are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "two armoured fighters grapple",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "one fighter throws the other",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "fighters separate and pause",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured combat reenactment",
+    "harnischfechten grappling",
+    "medieval wrestling armour",
+    "talhoffer wrestling plate",
+    "knight throw opponent"
+   ],
+   "subject": "armoured fighters",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Это скорее вывод, чем замер: бой в доспехе шёл рывками. Схватка, бросок, пауза.",
+   "queries_for": [
+    {
+     "q": "armoured combat reenactment",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "harnischfechten grappling",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval wrestling armour",
+     "for": [
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "talhoffer wrestling plate",
+     "for": [
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "knight throw opponent",
+     "for": [
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "a502fc7a59d5061c": {
+   "focus": "a manuscript illumination of the battle of Agincourt",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a manuscript illumination is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the illumination depicts the battle of Agincourt",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "armoured knights and archers",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "battle of agincourt manuscript illumination",
+    "agincourt chronicle miniature",
+    "medieval battle illumination knights"
+   ],
+   "subject": "a manuscript illumination",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Возьмём самый известный пример. Азенкур, двадцать пятое октября тысяча четыреста пятнадцатого года.",
+   "queries_for": [
+    {
+     "q": "battle of agincourt manuscript illumination",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "agincourt chronicle miniature",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval battle illumination knights",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "b864bc332860"
+  },
+  "fe1da4a3c8154271": {
+   "focus": "a battle lasting about three hours",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a battle is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "two armies engaged in combat",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a long drawn-out fight",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "medieval battle reenactment",
+    "armoured knights fighting",
+    "battle of agincourt painting"
+   ],
+   "subject": "a battle",
+   "model": "ds/deepseek-v4-pro",
+   "text": "По хроникам, битва длилась около трёх часов.",
+   "queries_for": [
+    {
+     "q": "medieval battle reenactment",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured knights fighting",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "battle of agincourt painting",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": ""
+  },
+  "96627760805d694c": {
+   "focus": "armoured knights fighting in a dense line",
+   "claims": [
+    {
+     "id": "core",
+     "text": "armoured knights are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "knights fight in a dense line",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "full plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "a manuscript illumination style",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured knights dense line manuscript",
+    "knights in plate armour fighting",
+    "medieval battle line illumination"
+   ],
+   "subject": "armoured knights",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Три часа в доспехе звучат как приговор.",
+   "queries_for": [
+    {
+     "q": "armoured knights dense line manuscript",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "knights in plate armour fighting",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval battle line illumination",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "198684b9e732"
+  },
+  "4cde8205e0255e73": {
+   "focus": "the whole battle versus one man's time",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a battle is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "many soldiers spread across a field",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "one soldier stands apart from the fighting",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "medieval battlefield wide shot",
+    "army on battlefield",
+    "soldier standing apart battle"
+   ],
+   "subject": "a battle",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Но это время всей битвы, а не одного человека.",
+   "queries_for": [
+    {
+     "q": "medieval battlefield wide shot",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "army on battlefield",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "soldier standing apart battle",
+     "for": [
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "a138d38fa1bab1df": {
+   "focus": "a battle line surging back and forth",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a battle line is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "soldiers move forward and backward",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "some soldiers leave the line",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "some soldiers return to the line",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "battle line surging",
+    "medieval reenactment line movement",
+    "soldiers leaving battle line"
+   ],
+   "subject": "a battle line",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Строй сходился, расходился, люди выходили из боя и возвращались.",
+   "queries_for": [
+    {
+     "q": "battle line surging",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval reenactment line movement",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "soldiers leaving battle line",
+     "for": [
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "a03e94d58594247d": {
+   "focus": "no evidence of three hours of continuous fighting",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a tired soldier is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a soldier rests or pauses",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the soldier wears armour",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "tired knight resting",
+    "armoured soldier pause battle",
+    "knight exhausted armour"
+   ],
+   "subject": "a tired soldier",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Оснований думать, что каждый рубился три часа подряд, нет.",
+   "queries_for": [
+    {
+     "q": "tired knight resting",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured soldier pause battle",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight exhausted armour",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "95b4757abcb69fa0": {
+   "focus": "a muddy ploughed field in rain between two woods",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a muddy ploughed field is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "rain falls on the field",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "two wooded areas flank the field",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "the ground is churned and wet",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "muddy ploughed field rain",
+    "wet field between woods",
+    "rain ploughed farmland"
+   ],
+   "subject": "a muddy field",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Хроники описывают размокшую пашню, по которой французы шли под стрелами.",
+   "queries_for": [
+    {
+     "q": "muddy ploughed field rain",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "wet field between woods",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "rain ploughed farmland",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "ef7945c45137"
+  },
+  "c87fcab358fd713a": {
+   "focus": "walking in armour on such ground is exhausting",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured person is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the person walks through deep mud",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the person wears plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the person struggles or leans forward",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "knight walking mud",
+    "armoured man struggling mud",
+    "plate armour walking field"
+   ],
+   "subject": "an armoured person",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Идти по такой земле в латах дорого по силам и без всякого боя, и это, похоже, ложится на цифры из Лидса.",
+   "queries_for": [
+    {
+     "q": "knight walking mud",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man struggling mud",
+     "for": [
+      "core",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "plate armour walking field",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "f037066e326a7004": {
+   "focus": "a steel sabaton boot pressed into thick mud",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a steel sabaton boot is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the boot presses into thick mud",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "mud oozes around the boot",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "close-up view",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "sabaton boot mud close up",
+    "armoured boot pressing mud",
+    "steel boot mud"
+   ],
+   "subject": "a sabaton boot",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Авторы лидской работы сами связывают свои цифры с Креси и Азенкуром: мол, на раскисшей земле такой расход сил мог решать исход.",
+   "queries_for": [
+    {
+     "q": "sabaton boot mud close up",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "armoured boot pressing mud",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "steel boot mud",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "d549b49bd937"
+  },
+  "7da1d07fa3df47a5": {
+   "focus": "the interpretation was not tested by experiment",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a laboratory is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "scientific equipment is present",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "no mud or field is present",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "sports science laboratory",
+    "treadmill laboratory",
+    "exercise physiology lab"
+   ],
+   "subject": "a laboratory",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Но это их толкование, опытом оно не проверялось. Земли на дорожке не было.",
+   "queries_for": [
+    {
+     "q": "sports science laboratory",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "treadmill laboratory",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "exercise physiology lab",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "96a1865aa64b873d": {
+   "focus": "three hours is about the battle, not one man",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a battle is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "many soldiers fight across a field",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "one soldier is visible alone",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "medieval battle wide shot",
+    "army fighting field",
+    "single knight battlefield"
+   ],
+   "subject": "a battle",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Так что три часа это цифра про битву. А цифры про человека у нас нет.",
+   "queries_for": [
+    {
+     "q": "medieval battle wide shot",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "army fighting field",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "single knight battlefield",
+     "for": [
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
   }
  }
 }

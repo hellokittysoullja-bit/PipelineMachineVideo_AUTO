@@ -152,3 +152,6 @@
 {"stage": "cascade_rank", "t_wall": 3.0133, "ok": true, "pid": 1947, "ts": 1791422824.753, "clip_idx": 3}
 {"stage": "cascade_rank", "t_wall": 2.8808, "ok": true, "pid": 1947, "ts": 1791422827.634, "clip_idx": 3}
 {"stage": "cascade_rank", "t_wall": 2.5456, "ok": true, "pid": 1947, "ts": 1791422830.18, "clip_idx": 3}
+{"stage": "slot_total", "t_wall": 2.5644, "ok": true, "pid": 415, "ts": 1791423710.306, "clip_idx": 0}
+{"stage": "slot_total", "t_wall": 0.3596, "ok": true, "pid": 415, "ts": 1791423710.666, "clip_idx": 1}
+{"stage": "slot_total", "t_wall": 0.3554, "ok": true, "pid": 415, "ts": 1791423711.022, "clip_idx": 2}

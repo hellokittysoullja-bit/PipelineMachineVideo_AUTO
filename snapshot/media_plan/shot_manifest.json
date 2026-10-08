@@ -608,7 +608,7 @@
   "motion_mode_estimate": "slow_pull",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval fight book manuscript",
+  "query": "scientific paper charts",
   "text_preview": "Через несколько лет вышла вторая работа, из Швейцарии."
  },
  {
@@ -620,7 +620,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval fight book manuscript",
+  "query": "historian examining armour",
   "text_preview": "Её вёл Даниэль Жаке, исследователь европейского фехтования."
  },
  {
@@ -632,7 +632,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "gothic plate armour museum",
+  "query": "man in gothic armour",
   "text_preview": "Подопытный здесь один: мужчина тридцати лет, рост метр восем"
  },
  {
@@ -644,7 +644,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "gothic plate armour museum",
+  "query": "gothic plate armour stand",
   "text_preview": "Доспех сделан по рукописи фехтовальщика Пауля Кала из тысяча"
  },
  {
@@ -656,7 +656,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "gothic plate armour museum",
+  "query": "armour on scale",
   "text_preview": "С поддоспешником почти сорок килограммов, то есть тяжелее, ч"
  },
  {
@@ -668,7 +668,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": false,
   "has_stat": true,
-  "query": "bascinet sallet helmet",
+  "query": "energy expenditure chart",
   "text_preview": "И вот результат: расход энергии вырос на шестьдесят шесть пр"
  },
  {
@@ -680,7 +680,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "bascinet sallet helmet",
+  "query": "comparison charts side by side",
   "text_preview": "Меньше, чем в Лидсе, хотя доспех тяжелее."
  },
  {
@@ -692,7 +692,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval battle crecy manuscript",
+  "query": "armoured man walking",
   "text_preview": "Походка почти не изменилась: углы в суставах отличались в ср"
  },
  {
@@ -704,7 +704,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval battle crecy manuscript",
+  "query": "armoured knight sword swing",
   "text_preview": "Большинство движений, нужных в бою, доспех не ограничивал."
  },
  {
@@ -716,7 +716,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval battle crecy manuscript",
+  "query": "armoured knight getting up",
   "text_preview": "А с земли человек вставал легко, и это снято на видео."
  },
  {
@@ -728,7 +728,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval fight book manuscript",
+  "query": "researcher shrugging puzzled",
   "text_preview": "Почему цифры разошлись? Честный ответ: точно никто не знает."
  },
  {
@@ -740,7 +740,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval fight book manuscript",
+  "query": "one knight versus four knights",
   "text_preview": "Один человек против четверых, разные доспехи, разная одежда "
  },
  {
@@ -752,7 +752,7 @@
   "motion_mode_estimate": "horizontal_pan",
   "is_subcut": false,
   "has_stat": false,
-  "query": "gothic plate armour museum",
+  "query": "foot tournament armour",
   "text_preview": "Сами швейцарцы оговариваются: их доспех пешего турнирного ти"
  },
  {
@@ -764,7 +764,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "gothic plate armour museum",
+  "query": "padded undergarment armour",
   "text_preview": "Одежда под доспехом могла мешать сильнее самих пластин."
  },
  {
@@ -776,7 +776,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "gothic plate armour museum",
+  "query": "replica armour museum",
   "text_preview": "А лидские копии, по их словам, на десятилетия моложе битв пр"
  },
  {
@@ -1232,7 +1232,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval wrestling fight book",
+  "query": "exhausted medieval fighters rest",
   "text_preview": "По Фруассару, после нескольких часов обе стороны выдохлись и"
  },
  {
@@ -1244,7 +1244,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval wrestling fight book",
+  "query": "coat of plates armour",
   "text_preview": "Правда, полных латных доспехов тогда ещё не носили, так что "
  },
  {
@@ -1256,7 +1256,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval manuscript knights",
+  "query": "medieval manuscript knights battle",
   "text_preview": "Складывается картина, которую не покажешь на дорожке."
  },
  {
@@ -1268,7 +1268,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval manuscript knights",
+  "query": "armoured combat reenactment",
   "text_preview": "Это скорее вывод, чем замер: бой в доспехе шёл рывками. Схва"
  },
  {
@@ -1280,7 +1280,7 @@
   "motion_mode_estimate": "slow_pull",
   "is_subcut": false,
   "has_stat": false,
-  "query": "battle of agincourt manuscript",
+  "query": "battle of agincourt manuscript illumination",
   "text_preview": "Возьмём самый известный пример. Азенкур, двадцать пятое октя"
  },
  {
@@ -1292,7 +1292,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "battle of agincourt manuscript",
+  "query": "medieval battle reenactment",
   "text_preview": "По хроникам, битва длилась около трёх часов."
  },
  {
@@ -1304,7 +1304,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval muddy field rain",
+  "query": "armoured knights dense line manuscript",
   "text_preview": "Три часа в доспехе звучат как приговор."
  },
  {
@@ -1316,7 +1316,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval muddy field rain",
+  "query": "medieval battlefield wide shot",
   "text_preview": "Но это время всей битвы, а не одного человека."
  },
  {
@@ -1328,7 +1328,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval muddy field rain",
+  "query": "battle line surging",
   "text_preview": "Строй сходился, расходился, люди выходили из боя и возвращал"
  },
  {
@@ -1340,7 +1340,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "battle of agincourt manuscript",
+  "query": "tired knight resting",
   "text_preview": "Оснований думать, что каждый рубился три часа подряд, нет."
  },
  {
@@ -1352,7 +1352,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "steel sabaton mud",
+  "query": "muddy ploughed field rain",
   "text_preview": "Хроники описывают размокшую пашню, по которой французы шли п"
  },
  {
@@ -1364,7 +1364,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "steel sabaton mud",
+  "query": "knight walking mud",
   "text_preview": "Идти по такой земле в латах дорого по силам и без всякого бо"
  },
  {
@@ -1376,7 +1376,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval knights dense line manuscript",
+  "query": "sabaton boot mud close up",
   "text_preview": "Авторы лидской работы сами связывают свои цифры с Креси и Аз"
  },
  {
@@ -1388,7 +1388,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval knights dense line manuscript",
+  "query": "sports science laboratory",
   "text_preview": "Но это их толкование, опытом оно не проверялось. Земли на до"
  },
  {
@@ -1400,7 +1400,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "battle of agincourt manuscript",
+  "query": "medieval battle wide shot",
   "text_preview": "Так что три часа это цифра про битву. А цифры про человека у"
  },
  {
