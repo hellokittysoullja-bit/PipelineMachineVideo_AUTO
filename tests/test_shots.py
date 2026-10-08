@@ -273,18 +273,7 @@ def test_a_long_shot_cuts_to_close_ups_of_named_details_every_few_seconds():
         inside = [o for o in objs[3:] if c[0] <= o["box"][0] and c[1] <= o["box"][1]
                   and c[2] >= o["box"][2] and c[3] >= o["box"][3]]
         assert inside
-    # направление дрейфа — от склейки (сравнение с прежним роликом 08.10: один дрейф на все планы,
-    # лицо на главной мысли шло отъездом): крупнее — камера продолжает приближаться, общее — отпускает
-    SH, SW = busy.shape
-    prev = None
-    for s_ in segs:
-        z = camera.zoom_of(s_["win"], SW, SH)
-        if prev is not None and s_["kind"] == "drift":
-            if z > prev*1.02:
-                assert s_["zoom_in"] is True
-            elif z < prev/1.02:
-                assert s_["zoom_in"] is False
-        prev = z
+    assert len({s["zoom_in"] for s in segs if s["kind"] == "drift"}) == 1   # одно направление на мысль (§1.3)
 
 
 def test_no_detail_close_up_that_slices_the_hero_head():

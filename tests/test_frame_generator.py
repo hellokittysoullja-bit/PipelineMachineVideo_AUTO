@@ -347,3 +347,33 @@ def test_drawn_frame_survives_prompt_wording_change_but_not_plan_change(tmp_path
               open(mp / "frames_report.json", "w"))
     assert fg.stamp_plan_sigs(str(tmp_path), {1: "ps"}) == 1
     assert json.load(open(mp / "frames_report.json"))["frames"][0]["plan_sig"] == "ps"
+
+
+class ClaimsJudge(FakeJudge):
+    """Судья с заданными ответами по утверждениям."""
+
+    def __init__(self, reads, claims, grid=3):
+        super().__init__(reads, grid=grid)
+        self.claims_answer = claims
+
+    def chat(self, model, content, max_tokens, est, reasoning=None, **kw):
+        if "For each statement" in content[0]["text"]:
+            return json.dumps({"claims": dict(self.claims_answer), "medium": "artwork", "why": "x"}), {}, 1
+        return super().chat(model, content, max_tokens, est, reasoning=reasoning, **kw)
+
+
+def test_must_answered_no_is_weak_not_ok(tmp_path):
+    frame = dict(FRAME, spec={"focus": "an open envelope", "claims": [
+        {"id": "core", "text": "an envelope is visible", "tier": "must"},
+        {"id": "c1", "text": "the envelope is open", "tier": "must"}], "queries": []})
+    rec = gen(tmp_path, ClaimsJudge(["NONE"] * 4, {"core": "yes", "c1": "no"}), variants=1, rounds=1).frame(frame)
+    assert rec["status"] == "weak" and rec["must_failed"] == ["c1"]
+
+
+def test_weak_never_passes_a_figure_on_a_doll_frame(tmp_path):
+    frame = dict(FRAME, hero_live=True, spec={"focus": "an envelope", "claims": [
+        {"id": "core", "text": "an envelope is visible", "tier": "must"},
+        {"id": "c1", "text": "the envelope is open", "tier": "must"},
+        {"id": "nofig", "text": "no figure anywhere", "tier": "must"}], "queries": []})
+    rec = gen(tmp_path, ClaimsJudge(["NONE"] * 4, {"core": "yes", "c1": "no", "nofig": "no"}), variants=1, rounds=1).frame(frame)
+    assert rec["status"] == "rejected"

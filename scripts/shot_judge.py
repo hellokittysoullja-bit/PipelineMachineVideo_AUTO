@@ -571,6 +571,16 @@ def claims_vector(spec, answers, *, world_veto=True, cg_veto=True):
     return (0.0 if foreign else 1.0,) + tuple(musts) + (clean,) + tuple(shoulds)
 
 
+def must_failed(spec, answers, skip=("nofig",)):
+    """Обязательные утверждения спецификации с ЯВНЫМ «нет» (не «сомневаюсь»). Для СГЕНЕРИРОВАННОГО
+    кадра это брак раунда: модель можно попросить ещё раз, и цена ошибки — закрытый конверт на фразе
+    «только открыть» (эп.01 08.10). Для стокового кадра то же правило выбрасывало годные замены
+    (см. nothing_met) — там оно не применяется. skip — утверждения с собственной веткой (nofig)."""
+    got = (answers or {}).get("claims") or {}
+    return [c["id"] for c in spec["claims"] if c.get("tier") == "must" and c.get("id") not in skip
+            and got.get(c["id"]) == "no"]
+
+
 def nothing_met(spec, answers):
     """Кадр не показывает из спецификации НИЧЕГО обязательного: каждое
     must-утверждение — «нет». Это брак — кроме случая, когда на прямой

@@ -370,9 +370,7 @@ class Generator:
             # требовала «the envelope is open», судья ответил «нет», а правило «хоть одно must» приняло);
             # исчерпаны раунды — лучший такой кадр всё же идёт на экран со статусом weak (frame())
             if ans is not None:
-                got = ans.get("claims") or {}
-                failed = [c["id"] for c in spec["claims"] if c.get("tier") == "must" and got.get(c["id"]) == "no"
-                          and c.get("id") != "nofig"]
+                failed = shot_judge.must_failed(spec, ans)
                 if failed and info[p]["vector"] is not None:
                     info[p]["must_failed"] = failed
                     info[p]["weak_vector"] = info[p]["vector"]
@@ -447,16 +445,18 @@ class Generator:
         if not good:
             # все раунды — кадры с проваленным must-утверждением: лучший из них идёт на экран со статусом
             # weak (на экране лучше близкий кадр, чем пустота/сосед), провал записан поимённо
-            weak = [p for p, i in pool.items() if i.get("must_failed") and i["text_ok"] is not False
-                    and not (i["grid"] is not None and i["grid"] <= 0)]
+            weak = [p for p, i in pool.items() if i.get("must_failed") and not i.get("figure_present")
+                    and i["text_ok"] is not False and not (i["grid"] is not None and i["grid"] <= 0)]
             weak.sort(key=lambda p: (pool[p]["weak_vector"] or (), pool[p]["grid"] or 0), reverse=True)
             for p in weak[:1]:
-                ok, info = labels.compose(p, out, frame, self.jgw, self.jmodel, self.judge_cache, flat_paper=self.flat_paper)
-                tries.append({"variant": os.path.basename(p), "ok": ok, "info": info, "weak": True})
-                if ok:
-                    r_ = done(p, info)
-                    r_.update(status="weak", must_failed=pool[p]["must_failed"])
-                    return r_
+                for fallback in (False, True):        # нет места под подпись — полоса, как у годного кадра
+                    ok, info = labels.compose(p, out, frame, self.jgw, self.jmodel, self.judge_cache,
+                                              fallback=fallback, flat_paper=self.flat_paper)
+                    tries.append({"variant": os.path.basename(p), "ok": ok, "info": info, "weak": True, "fallback": fallback})
+                    if ok:
+                        r_ = done(p, info, fallback=(info[0].get("fallback") if fallback and info else None))
+                        r_.update(status="weak", must_failed=pool[p]["must_failed"])
+                        return r_
         if good:
             # Годный рисунок, но места под подпись не нашлось ни в одном раунде:
             # подпись — на полосе цвета фона, а не выброс кадра (иначе на экране
@@ -606,6 +606,9 @@ def main():
     for r in recs:
         if r["status"] in ("rejected", "failed"):
             print(f"  кадр {r['index'] + 1}: {r['status']} — на экран не пойдёт, время отдаётся соседу")
+        elif r["status"] == "weak":
+            print(f"  кадр {r['index'] + 1}: weak — судья ответил «нет» на {r.get('must_failed')}; идёт на экран, "
+                  f"посмотреть глазами (второй раунд — только при IMAGE_ROUNDS>=2)")
     return 2 if any(r["status"] in ("rejected", "failed") for r in recs) else 0
 
 

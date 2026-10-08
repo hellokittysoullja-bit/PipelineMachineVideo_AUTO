@@ -251,12 +251,19 @@ def length_metrics(plans, writing=()):
     if len(L) == 0:
         return dict(plan_max_sec=None, plan_len_cv=None, plan_near_equal_share=None)
     near = float(np.mean(np.abs(np.diff(L)) < 0.2)) if len(L) > 1 else None
-    def is_writing(a, b):
-        return any(a <= w0 + 0.3 and b <= w1 + WRITING_PLAN_SLACK_SEC and b > w0 for w0, w1 in writing)
-    plain = [b - a for a, b in plans if not is_writing(a, b)]
-    return dict(plan_max_sec=float(max(plain)) if plain else 0.0, plan_len_cv=float(L.std() / L.mean()) if len(L) > 2 else None,
+
+    def effective(a, b):
+        """Длина плана без времени письма и удержания внутри него: письмо — вычитание, а не
+        исключение плана (иначе план, шедший 5 с до письма, выпадал бы из нормы целиком)."""
+        # допуск на снап склейки — только плану, в котором мысль писалась (он ждёт конца удержания);
+        # следующий план начинается после удержания и ничего не вычитает
+        held = sum(max(0.0, min(b, w1 + (WRITING_PLAN_SLACK_SEC if a <= w0 + 1e-6 else 0.0)) - max(a, w0))
+                   for w0, w1 in writing)
+        return b - a - held
+    eff = [effective(a, b) for a, b in plans]
+    return dict(plan_max_sec=float(max(eff)), plan_len_cv=float(L.std() / L.mean()) if len(L) > 2 else None,
                 plan_near_equal_share=near, plans=len(L), plan_mean_sec=float(L.mean()),
-                writing_plans=int(len(L) - len(plain)))
+                writing_plans=int(sum(e < l - 1e-9 for e, l in zip(eff, L))))
 
 
 def hook_metrics(plans, cuts, silences):

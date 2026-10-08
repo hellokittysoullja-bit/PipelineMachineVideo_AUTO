@@ -129,26 +129,24 @@ def integrated_lufs(path):
     return None
 
 
-NO_VOICE_LUFS = -50.0      # голос тише этого (тишина, заглушка превью) — голоса нет
-MASTER_TARGET_I = -14.0    # цель мастера (audio_master.LOUDNORM_TARGET_I): без голоса карандаш считается от неё
+def has_voice(voice_lufs):
+    """В дорожке голоса есть голос: интегральная громкость измерена и не ниже audio_master.NO_VOICE_LUFS.
+    Замер не удался — True: без уверенности мастер работает как обычно."""
+    import audio_master
+    return voice_lufs is None or voice_lufs >= audio_master.NO_VOICE_LUFS
 
 
-def has_voice(voice_path):
-    """В дорожке голоса есть голос (интегральная громкость не ниже NO_VOICE_LUFS). Замер не удался — True:
-    без уверенности мастер работает как обычно."""
-    v = integrated_lufs(voice_path)
-    return v is None or v >= NO_VOICE_LUFS
-
-
-def gain_for(voice_path, pencil_path, gap=PENCIL_GAP_LU):
-    """Усиление дорожки карандаша, дБ: на gap LU ниже голоса. Голоса нет (тишина, заглушка превью) —
-    на gap LU ниже цели мастера: иначе единственный звук файла, штрих, уходил в мастер сырым и loudnorm
-    поднимал его до −14 LUFS (превью эп.01 08.10: пик штриха −1.4 dBFS). (усиление, пояснение)."""
-    v, p = integrated_lufs(voice_path), integrated_lufs(pencil_path)
+def gain_for(voice_lufs, pencil_path, gap=PENCIL_GAP_LU):
+    """Усиление дорожки карандаша, дБ: на gap LU ниже голоса (voice_lufs — уже измеренная интегральная
+    громкость голоса, один замер на сборку). Голоса нет (тишина, заглушка превью) — на gap LU ниже цели
+    мастера: иначе единственный звук файла, штрих, уходил в мастер сырым и loudnorm поднимал его до
+    −14 LUFS (превью эп.01 08.10: пик штриха −1.4 dBFS). (усиление, пояснение)."""
+    import audio_master
+    v, p = voice_lufs, integrated_lufs(pencil_path)
     if p is None or p < -69:
         return None, f"замер не удался (голос {v}, карандаш {p})"
-    if v is None or v < NO_VOICE_LUFS:
-        g = float(np.clip(MASTER_TARGET_I - gap - p, -40, 20))
+    if not has_voice(v):
+        g = float(np.clip(audio_master.LOUDNORM_TARGET_I - gap - p, -40, 20))
         return g, json.dumps({"voice_lufs": v, "pencil_lufs": p, "gap_lu": gap, "ref": "master_target"})
     g = float(np.clip(v - gap - p, -40, 20))
     return g, json.dumps({"voice_lufs": v, "pencil_lufs": p, "gap_lu": gap})

@@ -154,6 +154,14 @@ def letters_box_world(letters, win):
     return (win[0] + min(xs)*s_, win[1] + min(ys)*s_, win[0] + (max(xs) + 1)*s_, win[1] + (max(ys) + 1)*s_)
 
 
+PLAN_PASSES = 4                 # план ↔ раскладка надписи: обычно сходится за 2-3 (замер эп.01: 3)
+
+
+def _same_window(a, b, tol=0.5):
+    """Окна совпадают с точностью до полпикселя холста."""
+    return max(abs(x - y) for x, y in zip(a, b)) < tol
+
+
 KEY_SPEEDUPS = (1.0, 1.25, 1.5)   # не успевает дописаться и постоять — карандаш быстрее, но не больше чем в 1.5 раза
 
 
@@ -211,9 +219,11 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
                 break
     p, speed = None, 1.0
     key_box = acc_box = None
-    for _pass in range(3):
+    key_fit = acc_fit = None                  # (окно момента, раскладка) последнего прохода
+    for _pass in range(PLAN_PASSES):
         # план -> раскладка надписи в окне момента -> рамка надписи -> план заново, уже с рамкой: пока
-        # дописанное стоит, склейки идут только в планы, где оно целиком в кадре (shots.plan, key_box)
+        # дописанное стоит, склейки идут только в планы, где оно целиком в кадре (shots.plan, key_box).
+        # Сходимость — по ОКНУ момента: при том же окне раскладка та же (детерминирована), рамка та же
         for speed in (KEY_SPEEDUPS if key_l else (1.0,)):
             key_dur = writeon.plan(key_l[0], fps, factor=speed)[1] if key_l else 0.0
             p = shots.plan(D, fr["busy"], words, fr["recs"], fr["objects"], key if key_l else None, key_dur,
@@ -222,20 +232,21 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
                            key_box=key_box, accent_box=acc_box)
             if not key_l or p["key_time"] is not None:
                 break
-        nb_key = nb_acc = None
+        nk = na = None
         if key_l and p["key_time"] is not None:
-            kl_ = key_layout(fr, key, shots.window_at(p, p["key_time"], fr["SW"], fr["SH"]))
-            nb_key = letters_box_world(kl_[0], shots.window_at(p, p["key_time"], fr["SW"], fr["SH"])) if kl_ else None
+            win = shots.window_at(p, p["key_time"], fr["SW"], fr["SH"])
+            nk = key_fit if key_fit and _same_window(key_fit[0], win) else (win, key_layout(fr, key, win))
         if acc_l and p.get("accent_time") is not None:
-            win_ = shots.window_at(p, p["accent_time"], fr["SW"], fr["SH"])
-            al_ = accent_layout(fr, accent, win_)
-            nb_acc = letters_box_world(al_[0], win_) if al_ else None
-
-        def _same(a, b):
-            return (a is None and b is None) or (a is not None and b is not None and max(abs(x - y) for x, y in zip(a, b)) < 2.0)
-        if _same(nb_key, key_box) and _same(nb_acc, acc_box):
+            win = shots.window_at(p, p["accent_time"], fr["SW"], fr["SH"])
+            na = acc_fit if acc_fit and _same_window(acc_fit[0], win) else (win, accent_layout(fr, accent, win))
+        converged = (nk is key_fit) and (na is acc_fit)
+        key_fit, acc_fit = nk, na
+        if converged:
             break
-        key_box, acc_box = nb_key, nb_acc
+        key_box = letters_box_world(key_fit[1][0], key_fit[0]) if key_fit and key_fit[1] else None
+        acc_box = letters_box_world(acc_fit[1][0], acc_fit[0]) if acc_fit and acc_fit[1] else None
+    else:
+        p["notes"].append("удержание надписи: план и раскладка не сошлись за отведённые проходы — рамка последнего прохода")
     p["assemble"] = bool(fr.get("assemble"))
     if mascot and ms is None:
         p["notes"].append("живой кукле нет места рядом с предметом — кадр без неё" if mascot_live.available()
@@ -251,8 +262,7 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
     if accent and not acc_l:
         p["notes"].append(f"акценту «{accent}» нет места — не пишется")
     if p.get("accent_time") is not None:
-        win = shots.window_at(p, p["accent_time"], fr["SW"], fr["SH"])
-        al = accent_layout(fr, accent, win)
+        win, al = acc_fit
         if al and writeon.plan(al[0], fps, factor=acc_speed)[1] <= acc_dur*1.05 + 0.1:
             p["accent"] = dict(text=accent, win=win, center=al[1], size=al[2], speed=acc_speed)
         else:
@@ -265,8 +275,7 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
             p["notes"] = [n for n in p["notes"] if "главная мысль" not in n]
             p["notes"].append(f"главная мысль пишется в {speed:.2f} раза быстрее, чтобы успеть и постоять")
         # писать в окне, где камера будет в этот момент (план держит его без склеек)
-        win = shots.window_at(p, p["key_time"], fr["SW"], fr["SH"])
-        kl = key_layout(fr, key, win)
+        win, kl = key_fit
         if kl and writeon.plan(kl[0], fps, factor=speed)[1] <= key_dur*1.05 + 0.1:
             p["key"] = dict(text=key, win=win, center=kl[1], size=kl[2], speed=speed, dur=key_dur)
         else:

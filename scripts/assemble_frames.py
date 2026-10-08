@@ -388,12 +388,13 @@ def main(video_dir):
              f"attack={am.MUSIC_DUCK_ATTACK_MS}:release={am.MUSIC_DUCK_RELEASE_MS}[md];"
              f"[v][md]amix=inputs=2:duration=first:normalize=0[a]", "-map", "[a]", "-ar", "48000", premix])
         print(f"  Музыка: {os.path.basename(music)}, {gain:+.1f} дБ ({why})")
+    import pencil_sound
+    voice_lufs = pencil_sound.integrated_lufs(voice)          # один замер голоса: карандаш и мастер решают по нему
     if cues:
-        import pencil_sound
         trk = pencil_sound.track(cues, total)
         pencil = os.path.join(work, "pencil.wav")
         pencil_sound.write_wav(trk, pencil)
-        pg, why = pencil_sound.gain_for(voice, pencil)
+        pg, why = pencil_sound.gain_for(voice_lufs, pencil)
         if pg is None:
             print(f"  ВНИМАНИЕ: звук карандаша не сведён — {why}")
         else:
@@ -403,8 +404,7 @@ def main(video_dir):
                  f"normalize=0[a]", "-map", "[a]", "-ar", "48000", mixed])
             premix = mixed
             print(f"  Карандаш: {len(cues)} штрихов, {pg:+.1f} дБ ({why})")
-    import pencil_sound as _ps
-    voiceless = not _ps.has_voice(voice)
+    voiceless = not pencil_sound.has_voice(voice_lufs)
     if voiceless:
         print("  Голоса в дорожке нет (превью/заглушка): мастер без loudnorm, уровни как сведены")
     af = am.build_master_af(am.measure_loudnorm_stats(premix), max(0.0, total - 2.0), 0.05, voiceless=voiceless)

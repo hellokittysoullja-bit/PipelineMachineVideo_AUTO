@@ -196,7 +196,11 @@ LIVE_RULE = ('\n  "hero_action" — only with hero true: what the character phys
              '"look" (sits or stands on the ground beside the thing of the line and looks at it, nothing in its '
              'paws), "paw_on_chest" (sits with one paw pressed to its chest — a feeling, a confession, nothing else '
              'in its paws), "other" (holds, carries, lies, climbs, hides its face, touches or interacts with anything '
-             'in any other way). Choose "other" whenever in doubt.')
+             'in any other way). Choose "other" whenever in doubt.\n'
+             '  "hero_mood" — only with hero true: the feeling on the character\'s face in your picture, one of "calm", '
+             '"curious", "happy", "relieved", "sad", "afraid", "ashamed", "angry", "tired".')
+LIVE_MOODS = ("calm", "curious", "happy", "relieved")   # что кукла умеет показать лицом (рисунок героя улыбается)
+HERO_MOODS = LIVE_MOODS + ("sad", "afraid", "ashamed", "angry", "tired")
 
 
 LIVE_NOFIG_ID = "nofig"
@@ -381,6 +385,9 @@ def extras(obj, text, states=()):
     act = obj.get("hero_action")
     if live_hero_enabled() and isinstance(act, str) and act in LIVE_ACTIONS and obj.get("hero") is True:
         out["hero_action"] = act                 # "other" и всё незнакомое — герой рисуется моделью, как раньше
+    mood = obj.get("hero_mood")
+    if isinstance(mood, str) and mood in HERO_MOODS and obj.get("hero") is True:
+        out["hero_mood"] = mood
     return out, notes
 
 
@@ -518,7 +525,7 @@ def accent_pass(frames):
     return n
 
 
-DRAWN_FIELDS = ("kind", "labels", "hero", "hero_live", "hero_action", "hero_state", "picture", "zoom", "details",
+DRAWN_FIELDS = ("kind", "labels", "hero", "hero_live", "hero_action", "hero_mood", "hero_state", "picture", "zoom", "details",
                 "key_thought", "key_near", "accent", "spec", "preflight")
 
 
@@ -536,7 +543,9 @@ def keep_drawn_frames(frames, video_dir):
         rep = json.load(open(os.path.join(mp, "frames_report.json"), encoding="utf-8"))
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return 0
-    drawn = {r.get("key") for r in rep.get("frames", []) if r.get("status") == "ok" and r.get("path")}
+    # weak (must-«нет», но на экране) и unchecked (судьи не было) — тоже нарисованы и оплачены: иначе кадр
+    # перепланировался бы каждый запуск и при любом сдвиге описания перерисовывался (аудит 08.10)
+    drawn = {r.get("key") for r in rep.get("frames", []) if r.get("status") not in (None, "rejected", "failed") and r.get("path")}
     n = 0
     for f in frames:
         o = old.get(f.get("key"))
@@ -553,9 +562,11 @@ def keep_drawn_frames(frames, video_dir):
 
 
 LIVE_EMOTION_BLOCK = re.compile(
-    r"\b(dread|afraid|fear|fearful|scared|frighten\w*|terrif\w*|panic\w*|anxious|anxiety|worr\w+|asham\w*|shame|"
-    r"guilt\w*|sad|sadly|sadness|cry|cries|crying|tears?|weep\w*|sob\w*|despair\w*|grie\w+|angry|anger|furious|rage|"
-    r"disgust\w*|exhaust\w*|horror|horrified|miserable|hopeless|defeated|sulk\w*|frown\w*|wince\w*|flinch\w*)\b", re.I)
+    r"\b(dread|afraid|fear|fearful|scared|frighten\w*|terrif\w*|panic\w*|anxious|anxiety|worr(?:y|ies|ied|ying)|"
+    r"asham\w*|shame|guilt\w*|sad|sadly|sadness|cry|cries|crying|tearful|in tears|weep\w*|sob(?:s|bed|bing)?|"
+    r"despair\w*|grie(?:f|ve|ves|ving)|angry|anger|furious|rage|disgust\w*|exhaust(?:ed|ion)|horror|horrified|"
+    r"miserable|hopeless|defeated|sulk\w*|frown\w*|wince\w*|flinch\w*|uneasy|nervous|tense|overwhelmed|cring\w*|"
+    r"upset|lonely|stress\w*|embarrass\w*|hides? (?:its|his|her) face|shrinks? away|cowers?|trembl\w*)\b", re.I)
 
 
 def live_emotion_blocked(f):
@@ -563,6 +574,9 @@ def live_emotion_blocked(f):
     груди», рисунок героя улыбается): страх, стыд, грусть, злость. Такой кадр остаётся нарисованному
     герою. Сравнение с эп.01 08.10: кукла улыбалась и смотрела в камеру на фразе «к письму прилипают стыд
     и тревога» (план требовал «looks at it with dread») — три рецензента назвали это противоречием."""
+    mood = f.get("hero_mood")
+    if mood in HERO_MOODS:                       # настроение названо планировщиком явно — оно и решает
+        return mood not in LIVE_MOODS
     texts = [f.get("picture") or ""] + [c.get("text") or "" for c in ((f.get("spec") or {}).get("claims") or [])]
     texts.append(((f.get("spec") or {}).get("focus")) or "")
     return bool(LIVE_EMOTION_BLOCK.search(" ".join(texts)))
@@ -605,11 +619,17 @@ def live_hero_revert(frames, hero_text=None):
     return n
 
 
-def limit_hero(frames, max_run=None, max_share=None, replacement="a person"):
+def limit_hero(frames, max_run=None, max_share=None, replacement="a person", locked=None):
     """Герой — гость, а не ведущий; правило кода, а не просьба к модели:
     не больше max_run кадров подряд и не больше max_share кадров эпизода.
     Лишнее снимается там, где герой стоит теснее всего (рядом с другими
-    кадрами героя), — так он остаётся разбросанным по ролику. Сколько снято."""
+    кадрами героя), — так он остаётся разбросанным по ролику. Сколько снято.
+    frames — ВЕСЬ эпизод (серии, доля и финал считаются по нему); locked(f) — кадр,
+    который менять нельзя (уже нарисован): он участвует в счёте, но не снимается.
+    Ревью 08.10: вызов на списке одних свободных кадров давал бонус финала не
+    последнему кадру эпизода, а последнему свободному, и склеивал серии через
+    нарисованный кадр между ними."""
+    locked = locked or (lambda f: False)
     run, share = hero_limits()
     max_run = run if max_run is None else max_run
     max_share = share if max_share is None else max_share
@@ -633,11 +653,11 @@ def limit_hero(frames, max_run=None, max_share=None, replacement="a person"):
             return (weight(i), min(gaps) if gaps else len(frames), -i)
         if not runs and not over:
             return trimmed
-        if runs:
-            victim = min(range(runs[0] - max_run, runs[0] + 1), key=crowd)   # из самой длинной серии — наименее важный
-        else:
-            victim = min(idx, key=crowd)
-        _drop_hero(frames[victim], replacement)
+        pool = range(runs[0] - max_run, runs[0] + 1) if runs else idx       # из серии — наименее важный
+        cands = [i for i in pool if not locked(frames[i])]
+        if not cands:
+            return trimmed                                 # всё нарисовано — снимать нечего
+        _drop_hero(frames[min(cands, key=crowd)], replacement)
         trimmed += 1
 
 
@@ -687,7 +707,7 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
     _run, _share = hero_limits()
     repl = (hero or {}).get("text") if (hero or {}).get("text") and _share >= MASCOT_SHARE else "a person"
     free = [f for f in frames if not f.get("kept_drawn")]
-    stats["hero_trimmed"] = limit_hero(free, replacement=repl) if free else 0
+    stats["hero_trimmed"] = limit_hero(frames, replacement=repl, locked=lambda f: f.get("kept_drawn"))
     n_acc = accent_pass(frames)
     if n_acc:
         stats["accent_by_rule"] = n_acc

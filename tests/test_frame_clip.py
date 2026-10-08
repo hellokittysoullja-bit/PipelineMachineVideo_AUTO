@@ -71,7 +71,7 @@ def test_pencil_track_is_silent_between_strokes_and_scaled_to_voice(tmp_path):
     v = str(tmp_path / "v.wav")
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=220:duration=3", "-ar", "48000", v],
                    check=True)
-    g, why = pencil_sound.gain_for(v, p)
+    g, why = pencil_sound.gain_for(pencil_sound.integrated_lufs(v), p)
     assert g is not None
     vl, pl = pencil_sound.integrated_lufs(v), pencil_sound.integrated_lufs(p)
     assert pl + g == pytest.approx(vl - pencil_sound.PENCIL_GAP_LU, abs=0.2)

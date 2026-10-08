@@ -306,14 +306,7 @@ def audio_qc(path, label="Audio QC"):
           else f"{label}: клиппинга/аномальной громкости не найдено")
 
 
-NO_VOICE_I = -40.0   # интегральная громкость сведения ниже этого — голоса в нём нет, loudnorm не применяется
-
-
-def _measured_i(loud_stats):
-    try:
-        return float(loud_stats["input_i"])
-    except (KeyError, TypeError, ValueError):
-        return None
+NO_VOICE_LUFS = -50.0   # интегральная громкость дорожки голоса ниже этого — голоса в ней нет (тишина, заглушка превью)
 
 
 def build_master_af(loud_stats, fade_out_st, fade_in_sec, voiceless=False):
@@ -335,11 +328,11 @@ def build_master_af(loud_stats, fade_out_st, fade_in_sec, voiceless=False):
     тем более уместен.
     """
     base = f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA}"
-    if voiceless or (loud_stats and _measured_i(loud_stats) is not None and _measured_i(loud_stats) < NO_VOICE_I):
+    if voiceless:
         # дорожка без голоса (превью, заглушка): нормализовать нечего — loudnorm поднял бы единственный
-        # звук (штрих карандаша) до −14 LUFS (превью эп.01 08.10: пик −1.4 dBFS; интегральная громкость
-        # с гейтом ebur128 у одиночного штриха −28 LUFS, поэтому порог по input_i его не ловит — сборщик
-        # передаёт voiceless по замеру дорожки голоса); уровень оставляем как есть
+        # звук (штрих карандаша) до −14 LUFS (превью эп.01 08.10: пик −1.4 dBFS). Решает сборщик по замеру
+        # дорожки голоса (pencil_sound.has_voice), не input_i сведения: у одиночного штриха с гейтом
+        # ebur128 он −28 LUFS, а порог по input_i глушил бы и настоящий тихий голос (аудит 08.10)
         base = "anull"
     elif loud_stats:
         base += (f":linear=true:measured_I={loud_stats['input_i']}:"

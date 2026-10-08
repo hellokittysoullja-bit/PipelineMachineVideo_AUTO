@@ -15,6 +15,8 @@
     она пишется — ни склеек, ни наездов (рука не прыгает вместе с кадром).
 План — чистые данные (окна в координатах холста и время от начала кадра),
 рисует его frame_clip.py."""
+import hashlib
+
 import numpy as np
 from scipy import ndimage
 
@@ -30,10 +32,13 @@ MIN_VIEW_SEC = 1.5
 HEAD_SLIVER = 0.05      # крупный план детали может захватить краешек головы героя (кончик уха) — до этой доли её рамки (0.15 захватил полглаза, живой прогон 05.10)
 HEAD_MAX_BOTTOM = 0.82  # голова героя в плане — целиком выше зоны плеера телефона (нижние 18% кадра): сравнение с эп.01 08.10 —
                         # подбородок на 0.98 и 1.03 высоты окна в среднем плане, лицо под плеером
-BODY_CROSS_MAX = 0.05   # окно задевает тело героя больше этой доли его рамки без головы в кадре — «обрубок» (эп.01: туловище без
+BODY_CROSS_MAX = 0.05   # окно захватывает больше этой доли ЧЕРНИЛ героя без головы в кадре — «обрубок» (эп.01: туловище без
                         # головы в правом верхнем углу плана конверта, 2.5 с)
 DETAIL_TIGHT_FILL = 0.5   # деталь внутри головы режет голову вокруг себя, только если сама занимает не меньше половины кадра —
                           # осознанный макро-план (глаза), а не лицо со срезанным подбородком
+WRITE_LEAD_SEC = 0.3      # склейка перед письмом — не позже чем за столько до первого штриха
+JITTER_SEC = 1.0          # разброс длин планов без таймингов речи: ±0.5 с от ровной точки
+VIEW_EDGE_MARGIN_SEC = 2/24  # план без события короче нормы на два кадра: ровно 3.50 с на границе блока приёмки (3.54)
 TEXT_EDGE_OVERLAP = 0.02  # надпись в плане целиком или вне его: больше этой доли её рамки на краю — обрезанная надпись
 VIEW_MIN_INK = 0.10     # план не общий: доля чернил в окне не меньше этой
 VIEW_MIN_INK_RATIO = 0.8  # и не меньше этой доли плотности общего плана — крупный план на пустой бумаге это не крупный план
@@ -108,6 +113,18 @@ def make_view_ok(busy, objects, wide, text_boxes=()):
         return float(ink_int[y1, x1] - ink_int[y0, x1] - ink_int[y1, x0] + ink_int[y0, x0])/((x1 - x0)*(y1 - y0))
     wide_ink = ink_share(wide)
     hero_boxes = [tuple(o["box"]) for o in objects or [] if o.get("role") == "hero" and o.get("box")]
+
+    def ink_count(x0, y0, x1, y1):
+        x0, y0, x1, y1 = max(0, int(round(x0))), max(0, int(round(y0))), min(SW, int(round(x1))), min(SH, int(round(y1)))
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        return float(ink_int[y1, x1] - ink_int[y0, x1] - ink_int[y1, x0] + ink_int[y0, x0])
+    hero_ink = {hb: max(1.0, ink_count(*hb)) for hb in hero_boxes}
+
+    def hero_ink_share(win, hb):
+        """Доля ЧЕРНИЛ героя, попавшая в окно (аудит 08.10: по площади рамки крупный план конверта
+        «задевал тело» пустой бумагой между телом и хвостом, и камера повторяла планы)."""
+        return ink_count(max(win[0], hb[0]), max(win[1], hb[1]), min(win[2], hb[2]), min(win[3], hb[3]))/hero_ink[hb]
     head_boxes = [tuple(o["box"]) for o in objects or [] if o.get("role") == "hero_head" and o.get("box")]
 
     def view_ok(win, db=None, ink=True):
@@ -135,7 +152,7 @@ def make_view_ok(busy, objects, wide, text_boxes=()):
         for hb in hero_boxes:
             if db is not None and _inside(db, hb):
                 continue
-            if _inside(hb, win) or _overlap(win, hb) <= BODY_CROSS_MAX:
+            if _inside(hb, win) or hero_ink_share(win, hb) <= BODY_CROSS_MAX:
                 continue
             if not any(_inside(kb, win) for kb in head_boxes if _inside(kb, hb) or _overlap(hb, kb) > 0.5):
                 return False
@@ -150,10 +167,11 @@ def make_view_ok(busy, objects, wide, text_boxes=()):
     return view_ok
 
 
-def _stable01(key):
-    """Детерминированное число в [0, 1) от ключа (hash() у Python солится от запуска к запуску)."""
-    import hashlib
-    return int(hashlib.sha256(repr(key).encode()).hexdigest()[:8], 16)/0x100000000
+def _stable01(*key):
+    """Детерминированное число в [0, 1) от чисел ключа: hash() у Python солится от запуска к запуску,
+    repr(np.float64) отличается между версиями numpy — поэтому форматируются обычные float."""
+    txt = "|".join(f"{float(v):.4f}" for v in key)
+    return int(hashlib.sha256(txt.encode()).hexdigest()[:8], 16)/0x100000000
 
 
 def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punch=-1e9, T0=0.0,
@@ -410,7 +428,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     if views and subj is not None:
         fx, fy = (subj[0] + subj[2])/2, (subj[1] + subj[3])/2
         wcx, wcy = (wide[0] + wide[2])/2, (wide[1] + wide[3])/2
-        for zf in (1.25, 1.18, 1.12, 0.9, 0.84):      # крупнее или чуть общее общего плана
+        for zf in (1.25, 1.18, 1.12, 0.9):   # крупнее или чуть общее общего (0.84 не проходит порог чернил: 0.84² < 0.8)
             for k in (0.5, 0.3, 0.0, -0.3):
                 w = camera.window(wcx + (fx - wcx)*k, wcy + (fy - wcy)*k, (wide[2] - wide[0])/zf, SW, SH)
                 # в него можно склеиться из крупных планов без «скачка»
@@ -449,7 +467,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         while t1 - t0 > vmax_at(t0):
             vmax = vmax_at(t0)
             lo = max(t0 + min(MIN_VIEW_SEC, vmax - 0.3), labels_done)
-            hi = min(t0 + vmax, t1 - MIN_VIEW_SEC)
+            hi = min(t0 + vmax - VIEW_EDGE_MARGIN_SEC, t1 - MIN_VIEW_SEC)
             if lo > t1 - MIN_VIEW_SEC:
                 break
             # склейка — на паузе речи (самый длинный промежуток между словами в допустимом окне):
@@ -463,7 +481,9 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             if s_ is None:
                 # без таймингов речи куски вышли бы ровными до миллисекунды (эп.01 08.10: семь планов
                 # 3.0–3.6 с подряд, разброс длин CV 0.20): детерминированный сдвиг до ±0.5 с от ровной точки
-                jit = 0.0 if starts else (_stable01((round(T0, 2), round(t0, 2), k)) - 0.5)*1.0
+                # ключ — от самого кадра (длина, точка, номер куска), не от T0: иначе правка ранней фразы
+                # перерендеривала бы все клипы превью после неё (аудит 08.10)
+                jit = 0.0 if starts else (_stable01(round(D, 2), round(t0, 2), k) - 0.5)*JITTER_SEC
                 s_ = snap(min(max(ideal + jit, lo), hi) if hi >= lo else max(ideal, lo), lo, t1 - MIN_VIEW_SEC)
             if s_ is None:
                 # окно целиком занято письмом (мысль, акцент): склейка — сразу после того, как дописано и
@@ -477,14 +497,22 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
                 break
             nxt = next_view(cur, held_boxes(s_))
             if nxt is None:
-                # ни один план не держит дописанную надпись целиком — склейка ждёт конца удержания
-                he = hold_end(s_)
-                s2 = snap(he, he, t1 - MIN_VIEW_SEC) if he <= t1 - MIN_VIEW_SEC + 1e-6 else None
-                nxt = next_view(cur, held_boxes(s2)) if s2 is not None else None
+                # ни один план не держит дописанную надпись целиком: сначала — склейка ДО начала письма
+                # (мысль пишется уже в новом плане; аудит 08.10: иначе план тянулся 7 с), иначе — после удержания
+                w0 = min((a for a, _, _ in holds if t0 + MIN_VIEW_SEC <= a - WRITE_LEAD_SEC and a < s_), default=None)
+                pre = None
+                if w0 is not None:
+                    pre = phrase_cut(lo, min(hi, w0 - WRITE_LEAD_SEC)) or snap(min(hi, w0 - WRITE_LEAD_SEC), lo, w0 - WRITE_LEAD_SEC)
+                if pre is not None:
+                    s_, nxt = pre, next_view(cur, held_boxes(pre))
+                else:
+                    he = hold_end(s_)
+                    s2 = snap(he, he, t1 - MIN_VIEW_SEC) if he <= t1 - MIN_VIEW_SEC + 1e-6 else None
+                    nxt = next_view(cur, held_boxes(s2)) if s2 is not None else None
+                    s_ = s2 if s2 is not None else s_
                 if nxt is None:
                     notes.append(f"склейка {s_:.2f} с не делается: надпись должна достоять на экране")
                     break
-                s_ = s2
             if nxt != wide and accent_time is not None and accent_time - MAX_VIEW_SEC - CUT_SNAP_SEC <= s_ <= accent_time + 1.5:
                 break           # акцент встаёт на общем плане: на среднем ему нет места (живой прогон)
             cur = nxt
@@ -515,20 +543,13 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
                 continue
             cur = wa
             segs.append(dict(t0=a, t1=b, kind="drift", win=wa, zoom_in=zi))
-    # направление дрейфа — от смысла склейки, а не от чётности кадра (эп.01 08.10: все 14 планов один дрейф,
-    # лицо на «только открыть» шло ОТЪЕЗДОМ): склейка крупнее — камера продолжает приближаться, общее —
-    # отпускает; пока стоит дописанная мысль — наезд к ней; первый план кадра — по чередованию кадров
-    prev_z = None
-    for sg in segs:
-        z_ = camera.zoom_of(sg.get("win_to") or sg["win"], SW, SH)
-        if sg["kind"] == "drift" and prev_z is not None:
-            if z_ > prev_z*1.02:
+    # направление дрейфа — одно на всю картинку (§1.3 спецификации: смена знака внутри картинки читается
+    # как дёрганье, приёмка это меряет); картинка с рукописной мыслью идёт наездом — к мысли, а не от неё
+    # (сравнение с прежним роликом 08.10: лицо на «только открыть» шло отъездом); иначе — чередование кадров
+    if key_time is not None:
+        for sg in segs:
+            if sg["kind"] == "drift":
                 sg["zoom_in"] = True
-            elif z_ < prev_z/1.02:
-                sg["zoom_in"] = False
-            if held_boxes(sg["t0"]) or (key_time is not None and sg["t0"] <= key_time < sg["t1"]):
-                sg["zoom_in"] = True
-        prev_z = z_
     # схема собирается по голосу: на каждой названной части камера чуть наклоняется к ней
     for sg in segs:
         if sg["kind"] != "drift" or sg["win"] != wide:

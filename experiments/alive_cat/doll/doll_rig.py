@@ -643,17 +643,16 @@ BLINK_MIN_GAP = 0.3     # между морганиями не меньше (д�
 END_QUIET_SEC = 0.5     # за столько до конца клипа новых движений век нет
 
 
-def thin_blinks(blinks, dur):
-    """Моргания по порядку, ближе BLINK_MIN_GAP к предыдущему — выбрасываются, в последние END_QUIET_SEC
-    клипа — тоже (веко закрывается 0.08 с и открывается 0.17 с — должно успеть)."""
-    out = []
+def thin_blinks(blinks, dur, keep=()):
+    """Моргания не чаще BLINK_MIN_GAP и не в последние END_QUIET_SEC клипа (веко закрывается 0.08 с и
+    открывается 0.17 с — должно успеть). keep — моргания, которые несут функцию (взгляд уходит и
+    возвращается под веком): при тесноте уступает случайное фоновое, а не они."""
+    out = [b for b in sorted(keep) if b <= dur - END_QUIET_SEC]
     for b in sorted(blinks):
-        if b > dur - END_QUIET_SEC:
-            continue
-        if out and b - out[-1] < BLINK_MIN_GAP:
+        if b > dur - END_QUIET_SEC or any(abs(b - k) < BLINK_MIN_GAP for k in out):
             continue
         out.append(b)
-    return out
+    return sorted(out)
 
 
 def plan(dur, actions, seed=7):
@@ -675,14 +674,15 @@ def plan(dur, actions, seed=7):
     paws = {"left": ([], []), "right": ([], [])}
     WV = []
     POSE = []
+    gaze_blinks = []
     for a in actions:
         t0, kind = a["t"], a["do"]
         if kind == "look":                      # смотреть на точку: x,y в [-1..1]
             d = a.get("dur", 1.5)
             if BLINK_ON_GAZE and abs(a["x"] - key(t0, look_x)) >= .6 and not any(abs(b - t0) < .5 for b in blinks):
-                blinks.append(t0 - .03)         # взгляд уходит под веком: так переводят глаза люди и кошки
+                gaze_blinks.append(t0 - .03)    # взгляд уходит под веком: так переводят глаза люди и кошки
             if BLINK_ON_GAZE and abs(a["x"]) >= .6 and not any(abs(b - (t0 + d)) < .5 for b in blinks):
-                blinks.append(t0 + d - .03)     # и возвращается тоже под веком
+                gaze_blinks.append(t0 + d - .03)  # и возвращается тоже под веком
             look_x = [p for p in look_x if not (t0 - .3 <= p[0] <= t0 + d + .3)]
             look_y = [p for p in look_y if not (t0 - .3 <= p[0] <= t0 + d + .3)]
             look_x += [(t0, key(t0, look_x)), (t0 + .22, a["x"]), (t0 + d, a["x"]), (t0 + d + .3, 0.)]
@@ -714,7 +714,7 @@ def plan(dur, actions, seed=7):
     # моргания не пачками и не у самой склейки (сравнение 08.10: три смыкания век за 0.62 с перед резом,
     # интервалы 0.08 с; интервал ≥ BLINK_MIN_GAP, двойное (0.32 с) остаётся, последнее — не позже
     # END_QUIET_SEC до конца клипа: движение, срезанное склейкой, читается как сбой)
-    blinks = thin_blinks(blinks, dur)
+    blinks = thin_blinks(blinks, dur, keep=gaze_blinks)
     head.sort()
     def state(t):
         lid = 0.
