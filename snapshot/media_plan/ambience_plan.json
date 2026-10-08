@@ -1,0 +1,51 @@
+{
+  "enabled": true,
+  "applied": false,
+  "gain": null,
+  "summary": {
+    "mode": "events",
+    "source": "director",
+    "events": 0,
+    "distinct_kinds": 0,
+    "covered_sec": 0,
+    "covered_share": 0.0,
+    "seconds_by_kind": {}
+  },
+  "events": [],
+  "dropped": [],
+  "music": [
+    {
+      "start": 0.0,
+      "end": 35.164,
+      "role": "intro",
+      "id": "lib_freesound_ba9d4bbe_94fd_4be5_8625_25406367aed6",
+      "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music/medieval/freesound_ba9d4bbe_94fd_4be5_8625_25406367aed6.flac",
+      "seed": 0
+    },
+    {
+      "start": 146.77,
+      "end": 163.861,
+      "role": "chapter",
+      "id": "mixkit_602",
+      "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_602.mp3",
+      "seed": 1
+    },
+    {
+      "start": 463.789,
+      "end": 478.329,
+      "role": "chapter",
+      "id": "mixkit_576",
+      "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_576.mp3",
+      "seed": 2
+    },
+    {
+      "start": 645.259,
+      "end": 681.557,
+      "role": "outro",
+      "id": "mixkit_598",
+      "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_598.mp3",
+      "seed": 3
+    }
+  ],
+  "segments": []
+}

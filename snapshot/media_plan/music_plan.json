@@ -1,0 +1,163 @@
+{
+ "version": 4,
+ "signature": "8aed4e8d994de2acd9ff",
+ "complete": true,
+ "chapters": [
+  "HOOK",
+  "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+  "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+  "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+  "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+  "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+  "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+  "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+  "FINAL"
+ ],
+ "intro": "lib_freesound_ba9d4bbe_94fd_4be5_8625_25406367aed6",
+ "outro": "mixkit_598",
+ "stings": [
+  {
+   "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+   "id": "mixkit_602"
+  },
+  {
+   "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+   "id": "mixkit_576"
+  }
+ ],
+ "beds": [
+  {
+   "section": "HOOK",
+   "id": "mixkit_712"
+  },
+  {
+   "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+   "id": "mixkit_712"
+  },
+  {
+   "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+   "id": "mixkit_712"
+  },
+  {
+   "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+   "id": "mixkit_712"
+  },
+  {
+   "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+   "id": "mixkit_614"
+  },
+  {
+   "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+   "id": "mixkit_601"
+  },
+  {
+   "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+   "id": "mixkit_601"
+  },
+  {
+   "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+   "id": "mixkit_71"
+  },
+  {
+   "section": "FINAL",
+   "id": "mixkit_579"
+  }
+ ],
+ "options": [
+  {
+   "slot": "intro",
+   "ids": [
+    "lib_freesound_ba9d4bbe_94fd_4be5_8625_25406367aed6"
+   ]
+  },
+  {
+   "slot": "sting 3",
+   "ids": [
+    "mixkit_64",
+    "mixkit_602"
+   ]
+  },
+  {
+   "slot": "sting 7",
+   "ids": [
+    "mixkit_576"
+   ]
+  },
+  {
+   "slot": "sting 8",
+   "ids": [
+    "mixkit_677"
+   ]
+  },
+  {
+   "slot": "bed 1",
+   "ids": [
+    "mixkit_601",
+    "mixkit_712"
+   ]
+  },
+  {
+   "slot": "bed 2",
+   "ids": [
+    "mixkit_601",
+    "mixkit_712"
+   ]
+  },
+  {
+   "slot": "bed 3",
+   "ids": [
+    "mixkit_712",
+    "mixkit_251"
+   ]
+  },
+  {
+   "slot": "bed 4",
+   "ids": [
+    "mixkit_712",
+    "mixkit_251"
+   ]
+  },
+  {
+   "slot": "bed 5",
+   "ids": [
+    "mixkit_598",
+    "mixkit_614"
+   ]
+  },
+  {
+   "slot": "bed 6",
+   "ids": [
+    "mixkit_598",
+    "mixkit_601"
+   ]
+  },
+  {
+   "slot": "bed 7",
+   "ids": [
+    "mixkit_21",
+    "mixkit_601"
+   ]
+  },
+  {
+   "slot": "bed 8",
+   "ids": [
+    "mixkit_21",
+    "mixkit_71"
+   ]
+  },
+  {
+   "slot": "bed 9",
+   "ids": [
+    "mixkit_592",
+    "mixkit_579"
+   ]
+  },
+  {
+   "slot": "outro",
+   "ids": [
+    "mixkit_592",
+    "mixkit_598"
+   ]
+  }
+ ]
+}

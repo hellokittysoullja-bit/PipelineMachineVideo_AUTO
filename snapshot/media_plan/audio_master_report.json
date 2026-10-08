@@ -1,0 +1,114 @@
+{
+ "music_enabled": true,
+ "synth_bed_enabled": false,
+ "made_by": "render",
+ "bed": {
+  "voice_lufs": -19.2,
+  "music_lufs": -23.6,
+  "target_gap_lu": 16.0,
+  "gain_db": -11.6,
+  "raw_gain_db": -11.6,
+  "source": "measured",
+  "clamped": false,
+  "bed_source": "library",
+  "beds": [
+   {
+    "start": 0.0,
+    "end": 335.226,
+    "id": "mixkit_712",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_712.mp3",
+    "section": "HOOK"
+   },
+   {
+    "start": 335.226,
+    "end": 404.413,
+    "id": "mixkit_614",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_614.mp3",
+    "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ"
+   },
+   {
+    "start": 404.413,
+    "end": 579.103,
+    "id": "mixkit_601",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_601.mp3",
+    "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ"
+   },
+   {
+    "start": 579.103,
+    "end": 636.94,
+    "id": "mixkit_71",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_71.mp3",
+    "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА"
+   },
+   {
+    "start": 636.94,
+    "end": 681.557,
+    "id": "mixkit_579",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_579.mp3",
+    "section": "FINAL"
+   }
+  ],
+  "music_cues": {
+   "voice_lufs": -19.2,
+   "music_lufs": -23.7,
+   "target_gap_lu": 12.0,
+   "gain_db": -7.5,
+   "source": "measured"
+  },
+  "cues": [
+   {
+    "start": 0.0,
+    "end": 35.164,
+    "role": "intro",
+    "id": "lib_freesound_ba9d4bbe_94fd_4be5_8625_25406367aed6",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music/medieval/freesound_ba9d4bbe_94fd_4be5_8625_25406367aed6.flac",
+    "seed": 0
+   },
+   {
+    "start": 146.77,
+    "end": 163.861,
+    "role": "chapter",
+    "id": "mixkit_602",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_602.mp3",
+    "seed": 1
+   },
+   {
+    "start": 463.789,
+    "end": 478.329,
+    "role": "chapter",
+    "id": "mixkit_576",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_576.mp3",
+    "seed": 2
+   },
+   {
+    "start": 645.259,
+    "end": 681.557,
+    "role": "outro",
+    "id": "mixkit_598",
+    "path": "/home/user/PipelineMachineVideo_AUTO/assets/library/music_mixkit/mixkit_598.mp3",
+    "seed": 3
+   }
+  ]
+ },
+ "target_gap_lu": 16.0,
+ "duck": {
+  "threshold": 0.06,
+  "ratio": 9.0,
+  "attack_ms": 15.0,
+  "release_ms": 450.0
+ },
+ "climax_dip_db": -22.0,
+ "voice_process_enabled": true,
+ "limiter": {
+  "limit_db": -2.0,
+  "attack_ms": 5,
+  "release_ms": 50
+ },
+ "loudnorm": {
+  "I": -14.0,
+  "TP": -1.5,
+  "LRA": 11
+ },
+ "final_lufs": -14.05,
+ "final_tp": -1.77
+}

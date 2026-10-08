@@ -1,0 +1,14 @@
+intro | A
+sting 3 | B
+sting 7 | A
+sting 8 | none
+bed 1 | B
+bed 2 | B
+bed 3 | A
+bed 4 | A
+bed 5 | B
+bed 6 | B
+bed 7 | B
+bed 8 | B
+bed 9 | B
+outro | B

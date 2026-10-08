@@ -1,0 +1,16 @@
+{
+ "version": 7,
+ "signature": "028b8db3ff2e932a7974",
+ "models": [
+  "ag/gemini-3.7-flash-low",
+  "qwen/qwen3.8-max"
+ ],
+ "stats": {
+  "draft": 0,
+  "kept": 0,
+  "critic_failed": 0,
+  "draft_failed": 3
+ },
+ "cues": [],
+ "proposed": []
+}

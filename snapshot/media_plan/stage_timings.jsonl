@@ -2692,3 +2692,4 @@
 {"stage": "clip_render", "t_wall": 71.8287, "ok": true, "pid": 10072, "ts": 1791449906.469, "clip_idx": 123, "fn": "kenburns"}
 {"stage": "slot_total", "t_wall": 203.9435, "ok": true, "pid": 416, "ts": 1791450038.58, "clip_idx": 124}
 {"stage": "assembly_xfade", "t_wall": 851.3773, "ok": true, "pid": 416, "ts": 1791450889.958, "n_clips": 123}
+{"stage": "final_mux", "t_wall": 54.763, "ok": true, "pid": 416, "ts": 1791451282.073}

@@ -1,0 +1,13 @@
+intro | lib_freesound_ba9d4bbe_94fd_4be5_8625_25406367aed6
+outro | mixkit_598
+sting | 3 | mixkit_602
+sting | 7 | mixkit_576
+bed | 1 | mixkit_712
+bed | 2 | mixkit_712
+bed | 3 | mixkit_251
+bed | 4 | mixkit_251
+bed | 5 | mixkit_614
+bed | 6 | mixkit_601
+bed | 7 | mixkit_601
+bed | 8 | mixkit_71
+bed | 9 | mixkit_579

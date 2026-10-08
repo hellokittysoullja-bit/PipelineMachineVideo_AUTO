@@ -1,0 +1,183 @@
+{
+  "enabled": true,
+  "gains_db": {
+    "chapter": -12.0,
+    "plate": -16.0
+  },
+  "target_lufs": {
+    "chapter": -31.8,
+    "plate": -36.7
+  },
+  "object_levels": {
+    "voice_lufs": -19.2,
+    "target_gap_lu": {
+      "point": 28.0,
+      "bed": 32.0
+    },
+    "fallback_gain_db": {
+      "point": -24.0,
+      "bed": -8.0
+    },
+    "gain_bounds_db": [
+      -40.0,
+      0.0
+    ]
+  },
+  "object_pre_lap_sec": 0.45,
+  "summary": {
+    "accepted_total": 10,
+    "dropped_total": 2,
+    "accepted_by_kind": {
+      "chapter": 6,
+      "plate": 4
+    },
+    "dropped_by_reason": {
+      "climax_window": 1,
+      "gap_too_short": 1
+    }
+  },
+  "accepted": [
+    {
+      "kind": "chapter",
+      "block": 25,
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "anchor": 76.107864,
+      "time": 76.107864,
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/title_hit/freesound_555243_bright_cinematic_boom_slow.flac",
+      "asset_dur": 9.0,
+      "hit_gap_lu": 1.5,
+      "trim_sec": 9.0,
+      "fade_out_sec": 3.0,
+      "hit": true,
+      "gain_db": -10.0,
+      "gain_source": "measured"
+    },
+    {
+      "time": 104.0678687777778,
+      "block": 29,
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "stat": "20–25 КГ",
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/plate_tick/freesound_a1e70c65_8528_4b76_98e0_f09f815f7207.flac",
+      "gain_db": -7.2,
+      "kind": "plate",
+      "gain_source": "measured"
+    },
+    {
+      "kind": "chapter",
+      "block": 35,
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "anchor": 146.03961,
+      "time": 146.03961,
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/chapter_hit/freesound_555245_bright_cinematic_boom.flac",
+      "asset_dur": 6.001458,
+      "hit_gap_lu": 3.0,
+      "hit": true,
+      "gain_db": -11.6,
+      "gain_source": "measured"
+    },
+    {
+      "time": 179.235801,
+      "block": 38,
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "stat": "35 КГ",
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/plate_tick/freesound_a1e70c65_8528_4b76_98e0_f09f815f7207.flac",
+      "gain_db": -7.2,
+      "kind": "plate",
+      "gain_source": "measured"
+    },
+    {
+      "time": 198.103801,
+      "block": 41,
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "stat": "×2 НА ШАГ",
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/plate_tick/freesound_a1e70c65_8528_4b76_98e0_f09f815f7207.flac",
+      "gain_db": -7.2,
+      "kind": "plate",
+      "gain_source": "measured"
+    },
+    {
+      "kind": "chapter",
+      "block": 50,
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "anchor": 244.816668,
+      "time": 244.816668,
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/chapter_hit/freesound_555245_bright_cinematic_boom.flac",
+      "asset_dur": 6.001458,
+      "hit_gap_lu": 3.0,
+      "hit": true,
+      "gain_db": -11.6,
+      "gain_source": "measured"
+    },
+    {
+      "time": 278.916297,
+      "block": 55,
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "stat": "+66%",
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/plate_tick/freesound_a1e70c65_8528_4b76_98e0_f09f815f7207.flac",
+      "gain_db": -7.2,
+      "kind": "plate",
+      "gain_source": "measured"
+    },
+    {
+      "kind": "chapter",
+      "block": 66,
+      "section": "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ",
+      "anchor": 333.495598,
+      "time": 333.495598,
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/chapter_hit/freesound_555245_bright_cinematic_boom.flac",
+      "asset_dur": 6.001458,
+      "hit_gap_lu": 3.0,
+      "hit": true,
+      "gain_db": -11.6,
+      "gain_source": "measured"
+    },
+    {
+      "kind": "chapter",
+      "block": 87,
+      "section": "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ",
+      "anchor": 463.059054,
+      "time": 463.059054,
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/chapter_hit/freesound_555245_bright_cinematic_boom.flac",
+      "asset_dur": 6.001458,
+      "hit_gap_lu": 3.0,
+      "hit": true,
+      "gain_db": -11.6,
+      "gain_source": "measured"
+    },
+    {
+      "kind": "chapter",
+      "block": 106,
+      "section": "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА",
+      "anchor": 577.372628,
+      "time": 577.372628,
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/chapter_hit/freesound_555245_bright_cinematic_boom.flac",
+      "asset_dur": 6.001458,
+      "hit_gap_lu": 3.0,
+      "hit": true,
+      "gain_db": -11.6,
+      "gain_source": "measured"
+    }
+  ],
+  "dropped": [
+    {
+      "kind": "chapter",
+      "block": 76,
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "anchor": 402.682531,
+      "time": 402.682531,
+      "asset": "/home/user/PipelineMachineVideo_AUTO/assets/library/sfx/chapter_hit/freesound_555245_bright_cinematic_boom.flac",
+      "asset_dur": 6.001458,
+      "hit_gap_lu": 3.0,
+      "hit": true,
+      "reason": "climax_window"
+    },
+    {
+      "kind": "chapter",
+      "block": 117,
+      "section": "FINAL",
+      "anchor": 636.939624,
+      "reason": "gap_too_short",
+      "gap_sec": 0.195
+    }
+  ]
+}
