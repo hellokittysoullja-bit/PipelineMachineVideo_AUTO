@@ -17089,7 +17089,7 @@ def clip_post_filter(post, dur):
         chain = screen_text.place_caption_chain(
             cap, cap["local"], dur, ffmpeg_filter_path(SCREEN_TEXT_FONTS["place"]),
             ffmpeg_filter_path(SCREEN_TEXT_FONTS["year"]), escape_drawtext,
-            SCREEN_TEXT_FONTS["year"], accent=STAT_ACCENT)
+            SCREEN_TEXT_FONTS["year"], accent=STAT_ACCENT, place_font_path=SCREEN_TEXT_FONTS["place"])
         fc = (fc + ";" if fc else "") + f"[{label}]{chain}[vcap]"
         label = "vcap"
     return fc, label

@@ -41,7 +41,7 @@ _HUND_CARD.update({"ста": 100, "двухсот": 200, "трёхсот": 300, 
                    "семисот": 700, "восьмисот": 800, "девятисот": 900})
 _TENS_CARD.update({"двадцати": 20, "тридцати": 30, "сорока": 40, "пятидесяти": 50,
                    "шестидесяти": 60, "семидесяти": 70, "восьмидесяти": 80, "девяноста": 90})
-_ORD_ENDINGS = ("ом", "ого", "ый", "ой", "ий", "ем", "его")
+_ORD_ENDINGS = ("ом", "ого", "ый", "ой", "ий", "ем", "его", "ое", "ье", "ьего", "ьем", "ьему", "ому")
 
 YEAR_MIN, YEAR_MAX = 500, 2100
 
@@ -252,6 +252,106 @@ def script_words(text):
     # иначе «при Шекспире» подтверждалось формой «Шекспира» как место.
     return {w for w in words - persons
             if not any(w[:-k] in persons for k in (1, 2) if len(w) - k >= 3)}
+
+
+_MONTHS = {"января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
+           "июля": 7, "августа": 8, "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12}
+_DAY_TENS = {"двадцать": 20, "тридцать": 30}
+_DATE_RE = re.compile(
+    rf"(?<![А-Яа-яЁё\d])((?:(?:двадцать|тридцать)\s+)?{_WORD}|\d{{1,2}})\s+"
+    r"(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b", re.I)
+
+
+def _day_value(token):
+    t = token.lower().split()
+    if len(t) == 1 and t[0].isdigit():
+        v = int(t[0])
+        return v if 1 <= v <= 31 else None
+    base = 0
+    if len(t) == 2:
+        if t[0] not in _DAY_TENS:
+            return None
+        base = _DAY_TENS[t[0]]
+    v = _ordinal_value(t[-1])
+    if v is None or (base and v > 9):
+        return None
+    v += base
+    return v if 1 <= v <= 31 else None
+
+
+def dates_in(text):
+    """[(подпись, начало, конец)] — даты фразы: «25 ОКТЯБРЯ 1415» (день, месяц
+    и год рядом), «25 ОКТЯБРЯ» (без года), «1415» (только год). Число дня и
+    год — словами или цифрами. Десятилетия и века — не дата (years_in)."""
+    text = text or ""
+    years = years_in(text)
+    out, used = [], set()
+    for m in _DATE_RE.finditer(text):
+        day = _day_value(m.group(1))
+        if day is None:
+            # «пятое» без десятка не захватилось целиком — пробуем последнее слово
+            last = m.group(1).split()[-1]
+            day = _day_value(last)
+            if day is None:
+                continue
+        label = f"{day} {m.group(2).upper()}"
+        end = m.end()
+        for k, (y, ya, yb) in enumerate(years):
+            if 0 <= ya - m.end() <= 3:
+                label += f" {y}"
+                end = yb
+                used.add(k)
+                break
+        out.append((label, m.start(), end))
+    for k, (y, ya, yb) in enumerate(years):
+        if k not in used:
+            out.append((str(y), ya, yb))
+    return sorted(out, key=lambda x: x[1])
+
+
+# Имя места в НАЧАЛЕ предложения перед запятой и датой: «Азенкур, двадцать
+# пятое октября…». Предлога нет, поэтому одно слово с заглавной в начале
+# предложения само по себе ничего не доказывает («Теперь, …»). Берём его,
+# только если (1) сразу после запятой идёт дата и (2) сценарий где-то ещё
+# склоняет это имя («при Азенкуре», «Азенкура») — значит, это имя собственное.
+_START_PLACE_RE = re.compile(rf"(?:^|(?<=[.!?…»]\s))({_CAP}),\s+")
+
+
+def _declined_elsewhere(word, confirm):
+    if not confirm or len(word) < 4:
+        return False
+    stem = word[:max(4, len(word) - 1)].lower()
+    return any(c != word and c.lower().startswith(stem) for c in confirm)
+
+
+def start_places_in(text, confirm=None):
+    text = text or ""
+    starts = [a for _l, a, _b in dates_in(text)]
+    out = []
+    for m in _START_PLACE_RE.finditer(text):
+        word = m.group(1)
+        if word.lower() in _NOT_PLACE or not _declined_elsewhere(word, confirm):
+            continue
+        if any(m.end() <= a <= m.end() + 1 for a in starts):
+            out.append((word, m.start(1), m.end(1)))
+    return out
+
+
+def place_and_date(text, confirm=None):
+    """(МЕСТО или None, ДАТА) — если во фразе ровно одна дата.
+
+    Место — то же правило, что place_and_year, плюс имя в начале предложения
+    перед датой. Мест нет или неясно, какое (два равноправных) — подпись
+    только с датой: число понятно и без места."""
+    ds = {lab for lab, _a, _b in dates_in(text)}
+    if len(ds) != 1:
+        return None
+    ps = {p.upper() for p, _a, _b in places_in(text or "", confirm) + start_places_in(text, confirm)}
+    if len(ps) > 1:
+        specific = {p for p in ps if not is_region(p)}
+        if len(specific) == 1:
+            ps = specific
+    return (next(iter(ps)) if len(ps) == 1 else None), next(iter(ds))
 
 
 def place_and_year(text, confirm=None):
