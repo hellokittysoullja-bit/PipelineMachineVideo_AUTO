@@ -1,0 +1,1 @@
+{"answers": {"claims": {"core": "yes", "c1": "yes", "c2": "yes", "c3": "no", "subject": "yes"}, "medium": "photo", "why": "The image shows a fighter in plate armor holding a lance. However, the fighter is mounted on a horse rather than standing, making c3 false. It is a photograph, likely a cutout due to the plain background."}, "model": "qwen/qwen3.7-plus"}
