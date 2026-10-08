@@ -5,6 +5,7 @@
 карточки цитаты — ничего не додумывать: нет явного места И года (или нет
 дословной цитаты с автором) — нет и текста на экране.
 """
+import re
 import contextlib
 import io
 import os
@@ -19,6 +20,16 @@ sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 
 import chapter_card as cc  # noqa: E402
 import place_year as py  # noqa: E402
+
+def _place_year(text, confirm=None):
+    """Место и год подписи (прежний контракт place_and_year) — через рабочую
+    функцию place_and_date: подпись без места здесь считается «нет места»."""
+    got = py.place_and_date(text, confirm)
+    if not got or not got[0]:
+        return None
+    m = re.search(r"(\d{3,4})$", got[1])
+    return (got[0], int(m.group(1))) if m else None
+
 import screen_text as st  # noqa: E402
 
 SCRIPT_03 = os.path.join(REPO_ROOT, "videos", "03_plen", "script.txt")
@@ -63,23 +74,23 @@ def test_not_a_year(text):
     ("В тысяча четыреста семьдесят шестом году они воевали с герцогом", None),  # нет места
 ])
 def test_place_and_year_never_guesses(text, expected):
-    assert py.place_and_year(text) == expected
+    assert _place_year(text) == expected
 
 
 def test_ambiguous_form_needs_confirmation_by_script():
     t = "Там, в Лондоне, в тысяча триста шестьдесят четвёртом году он и умер."
-    assert py.place_and_year(t, {"Лондон"}) == ("ЛОНДОН", 1364)
-    assert py.place_and_year("при Легнице в тысяча двести сорок первом году", {"Легница"}) == ("ЛЕГНИЦА", 1241)
+    assert _place_year(t, {"Лондон"}) == ("ЛОНДОН", 1364)
+    assert _place_year("при Легнице в тысяча двести сорок первом году", {"Легница"}) == ("ЛЕГНИЦА", 1241)
 
 
 def test_person_is_not_confirmed_as_place():
     words = py.script_words("Его схватил король Генрих. Потом было другое.")
     assert "Генрих" not in words
-    assert py.place_and_year("при Генрихе в тысяча сотом году", words) is None
+    assert _place_year("при Генрихе в тысяча сотом году", words) is None
 
 
 def test_two_places_or_two_years_no_caption():
-    assert py.place_and_year("при Пуатье в 1356 году и при Креси в 1346 году") is None
+    assert _place_year("при Пуатье в 1356 году и при Креси в 1346 году") is None
 
 
 def test_places_on_episode_03_are_the_verified_ones():
@@ -89,7 +100,7 @@ def test_places_on_episode_03_are_the_verified_ones():
     text = open(SCRIPT_03, encoding="utf-8").read()
     with contextlib.redirect_stdout(io.StringIO()):
         blocks = parse_blocks(SCRIPT_03)
-    found = {py.place_and_year(b["text"], py.script_words(text)) for b in blocks} - {None}
+    found = {_place_year(b["text"], py.script_words(text)) for b in blocks} - {None}
     assert found == {("ФРАНЦИЯ", 1119), ("ЛИНКОЛЬН", 1217), ("БРЕМЮЛЬ", 1119), ("АВСТРИЯ", 1192),
                      ("ПУАТЬЕ", 1356), ("ЛОНДОН", 1364), ("КУРТРЕ", 1302), ("КРЕСИ", 1346),
                      ("АЗЕНКУР", 1415)}

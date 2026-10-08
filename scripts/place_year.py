@@ -340,7 +340,7 @@ def start_places_in(text, confirm=None):
 def place_and_date(text, confirm=None):
     """(МЕСТО или None, ДАТА) — если во фразе ровно одна дата.
 
-    Место — то же правило, что place_and_year, плюс имя в начале предложения
+    Место — после предлога, в приложении («город X») или имя в начале предложения
     перед датой. Мест нет или неясно, какое (два равноправных) — подпись
     только с датой: число понятно и без места."""
     ds = {lab for lab, _a, _b in dates_in(text)}
@@ -352,22 +352,3 @@ def place_and_date(text, confirm=None):
         if len(specific) == 1:
             ps = specific
     return (next(iter(ps)) if len(ps) == 1 else None), next(iter(ds))
-
-
-def place_and_year(text, confirm=None):
-    """(МЕСТО, год) — если в одной фразе ровно одно место и ровно один год.
-    Несколько разных мест или лет — неясно, к чему подпись, её нет.
-
-    Исключение одно: если среди мест ровно одно конкретное (город, деревня),
-    а остальные — страны/крупные области (REGIONS), подпись получает
-    конкретное место («Бамберг … в Германии» -> БАМБЕРГ). Два равноправных
-    места — по-прежнему без подписи."""
-    ys = {y for y, _a, _b in years_in(text or "")}
-    ps = {p.upper() for p, _a, _b in places_in(text or "", confirm)}
-    if len(ps) > 1:
-        specific = {p for p in ps if not is_region(p)}
-        if len(specific) == 1:
-            ps = specific
-    if len(ys) == 1 and len(ps) == 1:
-        return next(iter(ps)), next(iter(ys))
-    return None

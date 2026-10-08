@@ -14,6 +14,16 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 import place_year as py  # noqa: E402
+
+def _place_year(text, confirm=None):
+    """Место и год подписи (прежний контракт place_and_year) — через рабочую
+    функцию place_and_date: подпись без места здесь считается «нет места»."""
+    got = py.place_and_date(text, confirm)
+    if not got or not got[0]:
+        return None
+    m = re.search(r"(\d{3,4})$", got[1])
+    return (got[0], int(m.group(1))) if m else None
+
 import screen_text as st  # noqa: E402
 import script_preflight as pf  # noqa: E402
 
@@ -29,7 +39,7 @@ JUNIUS = ("Юниус пишет дочери: «Невиновным я поп�
 # ---------------------------------------------------------------- место
 
 def test_city_in_apposition_wins_over_country():
-    assert py.place_and_year(BAMBERG, py.script_words(RAW)) == ("БАМБЕРГ", 1626)
+    assert _place_year(BAMBERG, py.script_words(RAW)) == ("БАМБЕРГ", 1626)
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -41,25 +51,25 @@ def test_city_in_apposition_wins_over_country():
     ("в тысяча сто девяносто втором году его опознали в Австрии", ("АВСТРИЯ", 1192)),  # страна одна
 ])
 def test_specific_place_only_over_region(text, expected):
-    assert py.place_and_year(text) == expected
+    assert _place_year(text) == expected
 
 
 def test_person_is_not_a_place_by_genitive_form():
     """«при Шекспире» подтверждалось формой «Шекспира» (пьесы Шекспира) как
     место — подписи «ШЕКСПИРА 1600» быть не должно."""
     words = py.script_words("В Лондоне шли пьесы Шекспира. И вскоре Шекспир пишет «Макбета».")
-    assert py.place_and_year("при Шекспире в 1600 году", words) is None
+    assert _place_year("при Шекспире в 1600 году", words) is None
 
 
 def test_era_is_not_a_place():
-    assert py.place_and_year("в Средневековье в тысяча трёхсотом году") is None
+    assert _place_year("в Средневековье в тысяча трёхсотом году") is None
 
 
 def test_apposition_oblique_case_confirmed_by_script():
     words = py.script_words("Ньюкасл, середина семнадцатого века.")
-    assert py.place_and_year("В английском городе Ньюкасле в 1649 году", words) == ("НЬЮКАСЛ", 1649)
+    assert _place_year("В английском городе Ньюкасле в 1649 году", words) == ("НЬЮКАСЛ", 1649)
     # без подтверждения — как написано (несклоняемое «Куртре» не режется)
-    assert py.place_and_year("в городе Куртре в 1302 году") == ("КУРТРЕ", 1302)
+    assert _place_year("в городе Куртре в 1302 году") == ("КУРТРЕ", 1302)
 
 
 # ---------------------------------------------------------------- автор цитаты
