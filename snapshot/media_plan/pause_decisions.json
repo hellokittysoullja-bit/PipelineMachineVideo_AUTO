@@ -1,0 +1,113 @@
+{
+  "source_audio_md5": "078acfaf68a298973e3f08f84c676793",
+  "decisions": [
+    {
+      "unit_id": "HOOK#1",
+      "section": "HOOK",
+      "rhetorical_kind": "question_rise",
+      "confidence": 0.6,
+      "confidence_gate_passed": true,
+      "base_target_sec": 0.55,
+      "final_target_sec": 0.359,
+      "cooldown_applied": false,
+      "music_action": "none",
+      "visual_action": "existing_cut_boundary",
+      "subtitle_action": "not_evaluated",
+      "notes": [],
+      "raw_window": [
+        13.514,
+        13.873
+      ]
+    },
+    {
+      "unit_id": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ#2",
+      "section": "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ",
+      "rhetorical_kind": "evidence_beat",
+      "confidence": 0.9,
+      "confidence_gate_passed": true,
+      "base_target_sec": 0.55,
+      "final_target_sec": 0.55,
+      "cooldown_applied": false,
+      "music_action": "none",
+      "visual_action": "existing_cut_boundary",
+      "subtitle_action": "not_evaluated",
+      "notes": [],
+      "raw_window": [
+        29.822,
+        30.382
+      ]
+    },
+    {
+      "unit_id": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ#1",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "rhetorical_kind": "evidence_beat",
+      "confidence": 0.9,
+      "confidence_gate_passed": true,
+      "base_target_sec": 0.55,
+      "final_target_sec": 0.55,
+      "cooldown_applied": false,
+      "music_action": "none",
+      "visual_action": "existing_cut_boundary",
+      "subtitle_action": "not_evaluated",
+      "notes": [],
+      "raw_window": [
+        37.989,
+        39.149
+      ]
+    },
+    {
+      "unit_id": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ#2",
+      "section": "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ",
+      "rhetorical_kind": "evidence_beat",
+      "confidence": 0.9,
+      "confidence_gate_passed": true,
+      "base_target_sec": 0.55,
+      "final_target_sec": 0.55,
+      "cooldown_applied": false,
+      "music_action": "none",
+      "visual_action": "existing_cut_boundary",
+      "subtitle_action": "not_evaluated",
+      "notes": [],
+      "raw_window": [
+        62.222,
+        62.846
+      ]
+    },
+    {
+      "unit_id": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ#2",
+      "section": "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ",
+      "rhetorical_kind": "evidence_beat",
+      "confidence": 0.9,
+      "confidence_gate_passed": true,
+      "base_target_sec": 0.55,
+      "final_target_sec": 0.55,
+      "cooldown_applied": false,
+      "music_action": "none",
+      "visual_action": "existing_cut_boundary",
+      "subtitle_action": "not_evaluated",
+      "notes": [],
+      "raw_window": [
+        36.702,
+        37.581
+      ]
+    },
+    {
+      "unit_id": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ#0",
+      "section": "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ",
+      "rhetorical_kind": "reveal_hold",
+      "confidence": 1.0,
+      "confidence_gate_passed": true,
+      "base_target_sec": 1.2,
+      "final_target_sec": 1.16,
+      "cooldown_applied": false,
+      "music_action": "climax_dip_only_swell_suppressed",
+      "visual_action": "existing_cut_boundary",
+      "subtitle_action": "not_evaluated",
+      "notes": [],
+      "raw_window": [
+        1.96,
+        3.12
+      ]
+    }
+  ]
+}
