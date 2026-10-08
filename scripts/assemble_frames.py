@@ -330,6 +330,9 @@ def main(video_dir):
                          "labels_at": [round(t, 2) for t in p["label_times"]],
                          "punch": p.get("punch_name"), "key": (p.get("key") or {}).get("text") if p.get("key_time") is not None else None,
                          "key_at": None if p.get("key_time") is None else round(p["key_time"], 2),
+                         # до этого момента дописанная мысль стоит на экране: приёмка не считает такой план длинным
+                         "key_hold_until": None if p.get("key_time") is None else
+                         round(p["key_time"] + (p.get("key") or {}).get("dur", 0.0) + shots.KEY_HOLD_SEC, 2),
                          "accent": (p.get("accent") or {}).get("text") if p.get("accent_time") is not None else None,
                          "notes": p["notes"]})
 
@@ -400,7 +403,11 @@ def main(video_dir):
                  f"normalize=0[a]", "-map", "[a]", "-ar", "48000", mixed])
             premix = mixed
             print(f"  Карандаш: {len(cues)} штрихов, {pg:+.1f} дБ ({why})")
-    af = am.build_master_af(am.measure_loudnorm_stats(premix), max(0.0, total - 2.0), 0.05)
+    import pencil_sound as _ps
+    voiceless = not _ps.has_voice(voice)
+    if voiceless:
+        print("  Голоса в дорожке нет (превью/заглушка): мастер без loudnorm, уровни как сведены")
+    af = am.build_master_af(am.measure_loudnorm_stats(premix), max(0.0, total - 2.0), 0.05, voiceless=voiceless)
     final = os.path.join(video_dir, "final.mp4")
     run(["ffmpeg", "-y", "-v", "error", "-i", video, "-i", premix, "-af", af, "-map", "0:v", "-map", "1:a",
          "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f"{total:.3f}",

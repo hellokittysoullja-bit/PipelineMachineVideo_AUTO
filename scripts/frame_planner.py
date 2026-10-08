@@ -552,6 +552,22 @@ def keep_drawn_frames(frames, video_dir):
     return n
 
 
+LIVE_EMOTION_BLOCK = re.compile(
+    r"\b(dread|afraid|fear|fearful|scared|frighten\w*|terrif\w*|panic\w*|anxious|anxiety|worr\w+|asham\w*|shame|"
+    r"guilt\w*|sad|sadly|sadness|cry|cries|crying|tears?|weep\w*|sob\w*|despair\w*|grie\w+|angry|anger|furious|rage|"
+    r"disgust\w*|exhaust\w*|horror|horrified|miserable|hopeless|defeated|sulk\w*|frown\w*|wince\w*|flinch\w*)\b", re.I)
+
+
+def live_emotion_blocked(f):
+    """Кадр просит у героя эмоцию, которой у куклы нет (у рига — взгляд, наклон, моргание, поза «лапа у
+    груди», рисунок героя улыбается): страх, стыд, грусть, злость. Такой кадр остаётся нарисованному
+    герою. Сравнение с эп.01 08.10: кукла улыбалась и смотрела в камеру на фразе «к письму прилипают стыд
+    и тревога» (план требовал «looks at it with dread») — три рецензента назвали это противоречием."""
+    texts = [f.get("picture") or ""] + [c.get("text") or "" for c in ((f.get("spec") or {}).get("claims") or [])]
+    texts.append(((f.get("spec") or {}).get("focus")) or "")
+    return bool(LIVE_EMOTION_BLOCK.search(" ".join(texts)))
+
+
 def live_hero_pass(frames):
     """Кадры героя с простым действием (hero_action из LIVE_ACTIONS) отдаются живой кукле: картинка
     генерируется БЕЗ героя (hero False — без референса), а в описании он пока остаётся, чтобы
@@ -560,6 +576,9 @@ def live_hero_pass(frames):
     n = 0
     for f in frames:
         if f.get("hero") and f.get("hero_action") in LIVE_ACTIONS:
+            if live_emotion_blocked(f):
+                f["hero_live_blocked"] = "emotion"      # эмоция не по силам кукле — герой рисуется
+                continue
             f["hero"] = False
             f["hero_live"] = True
             # судья обязан отклонить кадр с любой фигурой: живой прогон 07.10 — модель дорисовала существо за
@@ -600,7 +619,10 @@ def limit_hero(frames, max_run=None, max_share=None, replacement="a person"):
         # кадр, где герой несёт смысл (его состояние, наезд, главная мысль), снимается последним:
         # 04.10 правило сняло кота ровно с кульминации «только открыть письмо»
         f = frames[i]
-        return int(bool(f.get("hero_state"))) + int(bool(f.get("zoom"))) + int(bool(f.get("key_thought")))
+        # последний кадр эпизода — развязка дуги героя: снимается последним из всех (сравнение с эп.01
+        # 08.10: финал без героя все три рецензента назвали главным откатом; старый ролик кончался котом)
+        return (int(bool(f.get("hero_state"))) + int(bool(f.get("zoom"))) + int(bool(f.get("key_thought")))
+                + 3*int(i == len(frames) - 1))
     while True:
         idx = [i for i, f in enumerate(frames) if f.get("hero")]
         runs = [i for i in idx if all(i - k in idx for k in range(1, max_run + 1))]

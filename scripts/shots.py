@@ -28,6 +28,16 @@ HOOK_FIRST_VIEW_SEC = 2.0   # планы в зоне хука — не доль�
 HOOK_ZONE_SEC = 3.0         # зона хука — первые секунды ролика (та же, что у приёмки montage_qc)
 MIN_VIEW_SEC = 1.5
 HEAD_SLIVER = 0.05      # крупный план детали может захватить краешек головы героя (кончик уха) — до этой доли её рамки (0.15 захватил полглаза, живой прогон 05.10)
+HEAD_MAX_BOTTOM = 0.82  # голова героя в плане — целиком выше зоны плеера телефона (нижние 18% кадра): сравнение с эп.01 08.10 —
+                        # подбородок на 0.98 и 1.03 высоты окна в среднем плане, лицо под плеером
+BODY_CROSS_MAX = 0.05   # окно задевает тело героя больше этой доли его рамки без головы в кадре — «обрубок» (эп.01: туловище без
+                        # головы в правом верхнем углу плана конверта, 2.5 с)
+DETAIL_TIGHT_FILL = 0.5   # деталь внутри головы режет голову вокруг себя, только если сама занимает не меньше половины кадра —
+                          # осознанный макро-план (глаза), а не лицо со срезанным подбородком
+TEXT_EDGE_OVERLAP = 0.02  # надпись в плане целиком или вне его: больше этой доли её рамки на краю — обрезанная надпись
+VIEW_MIN_INK = 0.10     # план не общий: доля чернил в окне не меньше этой
+VIEW_MIN_INK_RATIO = 0.8  # и не меньше этой доли плотности общего плана — крупный план на пустой бумаге это не крупный план
+                          # (эп.01: план хвоста 3.2 с, чернил 0.47 от общего; годные планы того же эпизода 1.3–2.7)
 DETAIL_FILL = 0.3       # деталь в крупном плане — не меньше этой доли кадра по своей тесной стороне (мельче — это уже пятнышко)
 LABEL_FADE_SEC = 0.15
 CUT_SNAP_SEC = 0.6
@@ -68,8 +78,86 @@ def subject_box(busy, objects):
     return (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop)
 
 
+def _inside(a, b):
+    """Рамка a целиком внутри рамки b (с допуском в пиксель)."""
+    return a[0] >= b[0] - 1 and a[1] >= b[1] - 1 and a[2] <= b[2] + 1 and a[3] <= b[3] + 1
+
+
+def _overlap(win, b):
+    """Доля площади рамки b, попавшая в окно win."""
+    ix = max(0.0, min(win[2], b[2]) - max(win[0], b[0]))
+    iy = max(0.0, min(win[3], b[3]) - max(win[1], b[1]))
+    return ix*iy/max(1.0, (b[2] - b[0])*(b[3] - b[1]))
+
+
+def make_view_ok(busy, objects, wide, text_boxes=()):
+    """Проверка плана камеры (не общего) по правилам монтажа с персонажем — одна и та же для среднего
+    плана, крупных планов деталей и второго общего (и для тестов). Возвращает функцию
+    view_ok(win, db=None, ink=True); у неё атрибут wide_ink — доля чернил общего плана.
+    text_boxes — рамки рукописных надписей кадра (мысль, акцент): надпись в плане либо целиком, либо
+    её нет вовсе — обрезанная до «только от» надпись висела 2,3 с (эп.01 08.10, второй прогон)."""
+    SH, SW = busy.shape
+    ink_map = (busy > 0.3).astype(np.float64)
+    ink_int = np.zeros((SH + 1, SW + 1)); ink_int[1:, 1:] = ink_map.cumsum(0).cumsum(1)
+
+    def ink_share(win):
+        x0, y0, x1, y1 = [int(round(v)) for v in win]
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(SW, x1), min(SH, y1)
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        return float(ink_int[y1, x1] - ink_int[y0, x1] - ink_int[y1, x0] + ink_int[y0, x0])/((x1 - x0)*(y1 - y0))
+    wide_ink = ink_share(wide)
+    hero_boxes = [tuple(o["box"]) for o in objects or [] if o.get("role") == "hero" and o.get("box")]
+    head_boxes = [tuple(o["box"]) for o in objects or [] if o.get("role") == "hero_head" and o.get("box")]
+
+    def view_ok(win, db=None, ink=True):
+        """План (не общий) годен: голова героя целиком в кадре и выше зоны плеера, либо целиком за
+        кадром (краешек — до HEAD_SLIVER); тело героя не торчит обрубком без головы; чернил в окне
+        не меньше, чем на общем плане. db — рамка детали, ради которой план: деталь внутри головы
+        (глаза) или внутри тела (огонёк хвоста) режет вокруг себя своего хозяина законно."""
+        for kb in head_boxes:
+            if db is not None and _inside(db, kb):
+                # деталь внутри головы (глаза): либо настоящий макро-план (деталь ≥ DETAIL_TIGHT_FILL кадра),
+                # либо голова целиком и выше зоны плеера — «лицо без подбородка» (эп.01, план глаз 4.4–6.8 с) не план
+                tight = max((db[2] - db[0])/max(1.0, win[2] - win[0]), (db[3] - db[1])/max(1.0, win[3] - win[1]))
+                if tight >= DETAIL_TIGHT_FILL:
+                    # макро режет голову вокруг детали законно; но голова, попавшая в кадр ЦЕЛИКОМ, всё равно
+                    # не ниже зоны плеера (эп.01 кадр 3: макро глаз с головой целиком и подбородком на 0.83)
+                    if _inside(kb, win) and (kb[3] - win[1])/max(1.0, win[3] - win[1]) > HEAD_MAX_BOTTOM:
+                        return False
+                    continue
+            whole = _inside(kb, win)
+            if whole:
+                if (kb[3] - win[1])/max(1.0, win[3] - win[1]) > HEAD_MAX_BOTTOM:
+                    return False
+            elif _overlap(win, kb) > HEAD_SLIVER:
+                return False
+        for hb in hero_boxes:
+            if db is not None and _inside(db, hb):
+                continue
+            if _inside(hb, win) or _overlap(win, hb) <= BODY_CROSS_MAX:
+                continue
+            if not any(_inside(kb, win) for kb in head_boxes if _inside(kb, hb) or _overlap(hb, kb) > 0.5):
+                return False
+        for tb in text_boxes:
+            if not _inside(tb, win) and _overlap(win, tb) > TEXT_EDGE_OVERLAP:
+                return False
+        if ink and ink_share(win) < max(VIEW_MIN_INK, VIEW_MIN_INK_RATIO*wide_ink):
+            return False
+        return True
+
+    view_ok.wide_ink = wide_ink
+    return view_ok
+
+
+def _stable01(key):
+    """Детерминированное число в [0, 1) от ключа (hash() у Python солится от запуска к запуску)."""
+    import hashlib
+    return int(hashlib.sha256(repr(key).encode()).hexdigest()[:8], 16)/0x100000000
+
+
 def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punch=-1e9, T0=0.0,
-         zoom_in=True, parts=None, accent=None, accent_dur=0.0, first_of_film=False):
+         zoom_in=True, parts=None, accent=None, accent_dur=0.0, first_of_film=False, key_box=None, accent_box=None):
     """Сегменты камеры и события кадра.
 
     D — длительность кадра; busy — карта занятости холста; words — слова речи
@@ -94,6 +182,8 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             wide = tight
     wz = camera.zoom_of(wide, SW, SH)
     notes = []
+    view_ok = make_view_ok(busy, objects, wide, [tuple(b) for b in (key_box, accent_box) if b])
+    wide_ink = view_ok.wide_ink
 
     # подписи — в момент слова; не нашлось слова — по очереди в первой половине кадра
     n = len(labels)
@@ -143,6 +233,22 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             accent_time = at
             busy_win.append((at - 0.2, at + accent_dur + WRITE_TAIL_SEC))
 
+    # удержание дописанного: пока мысль/акцент стоит на экране, план обязан держать надпись в кадре
+    holds = []                                    # (t_from, t_to, box)
+    if key_time is not None and key_box is not None:
+        holds.append((key_time, key_time + key_dur + KEY_HOLD_SEC, tuple(key_box)))
+    if accent_time is not None and accent_box is not None:
+        holds.append((accent_time, accent_time + accent_dur + KEY_HOLD_SEC, tuple(accent_box)))
+
+    def held_boxes(t):
+        return [b for a, b_, b in holds if a - 1e-6 <= t < b_ - 1e-6]
+
+    def hold_end(t):
+        return max([b_ for a, b_, b in holds if a - 1e-6 <= t < b_ - 1e-6] or [t])
+
+    def shows(win, boxes):
+        return all(_inside(b, win) for b in boxes)
+
     # наезд на предмет
     punch = None
     for o in objects or []:
@@ -171,6 +277,9 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             or camera.punch_window(busy, tuple(o["box"]))
         if pw is None:
             notes.append(f"наезд на «{o.get('name')}» не делается: {getattr(camera.punch_window, 'why', '')}")
+            continue
+        if any(not shows(pw, held_boxes(tt)) for tt in np.arange(t, t + camera.PUNCH_SEC + PUNCH_HOLD_SEC, 0.1)):
+            notes.append(f"наезд на «{o.get('name')}» увёл бы дописанную надпись за кадр — пропущен")
             continue
         punch = (t, pw, o.get("name"))
         break
@@ -212,7 +321,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
                 ys_k, xs_k = slice(int(kb[1]), int(kb[3])), slice(int(kb[0]), int(kb[2]))
                 cm[ys_k, xs_k] = np.maximum(cm[ys_k, xs_k], busy[ys_k, xs_k])
         kw = dict(margin=MEDIUM_MARGIN if marked else 0.0, spread=0.35, max_cross=camera.SEPARATE_MAX_CROSS,
-                  grid=17, cross_map=cm)
+                  grid=17, cross_map=cm, accept=view_ok)
         medium = camera.frame_for(busy, tgt, mz, away=((wide[0] + wide[2])/2, 0, 0.1*(wide[2] - wide[0])), **kw) \
             or camera.frame_for(busy, tgt, mz, **kw)
         if medium is not None and max((tgt[2] - tgt[0])/(medium[2] - medium[0]),
@@ -235,7 +344,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             top = max(min(top, cy - bh/2), cy - 0.45*SH/wz)     # голова целиком, но не весь рост сцены
             core = (cx - bw/2, top, cx + bw/2, cy + bh/2)
             medium = camera.frame_for(busy, core, mz, margin=0.02, spread=0.2, max_cross=camera.SEPARATE_MAX_CROSS,
-                                      grid=13, cross_map=camera.others(busy, subj))
+                                      grid=13, cross_map=camera.others(busy, subj), accept=view_ok)
     if medium is not None and camera.is_jump(medium, wide, SW, SH):
         medium = None
 
@@ -245,21 +354,6 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     # целиком в кадре, целиком за ним или только краешком (до HEAD_SLIVER её рамки: на живых
     # кадрах огонёк и глыба нарисованы вплотную к уху). Головы нет в разметке (старый
     # кадр) — так же держится весь герой.
-    heads = [tuple(o["box"]) for o in objects or [] if o.get("role") == "hero_head" and o.get("box")]
-    guard = heads or [tuple(o["box"]) for o in objects or [] if o.get("role") == "hero" and o.get("box")]
-
-    def head_ok(win, db):
-        for kb in guard:
-            if db[0] >= kb[0] - 1 and db[1] >= kb[1] - 1 and db[2] <= kb[2] + 1 and db[3] <= kb[3] + 1:
-                continue                                  # деталь — часть головы: резать вокруг неё можно
-            ix = max(0.0, min(win[2], kb[2]) - max(win[0], kb[0]))
-            iy = max(0.0, min(win[3], kb[3]) - max(win[1], kb[1]))
-            area = max(1.0, (kb[2] - kb[0])*(kb[3] - kb[1]))
-            whole = win[0] <= kb[0] and win[1] <= kb[1] and win[2] >= kb[2] and win[3] >= kb[3]
-            if not whole and ix*iy > HEAD_SLIVER*area:
-                return False
-        return True
-
     details = []
     # голова героя — тоже крупный план (самая естественная склейка в анимации с персонажем), последним
     # в очереди: сначала детали, названные планом или судьёй. Живой эп.01: у всех пяти кадров не было ни
@@ -274,13 +368,18 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         kw = dict(margin=MEDIUM_MARGIN, spread=0.25, grid=13)
         dz = (wz*camera.CUT_MIN_RATIO*1.02, camera.PUNCH_MAX_ZOOM)
         dz_lo = (wz*1.15, wz*camera.CUT_MIN_RATIO*1.02)
-        dw = camera.frame_for(busy, db, dz, accept=lambda w, db=db: head_ok(w, db), **kw) or \
-            camera.frame_for(busy, db, dz_lo, accept=lambda w, db=db: head_ok(w, db) and not camera.is_jump(w, wide, SW, SH),
+        dw = camera.frame_for(busy, db, dz, accept=lambda w, db=db: view_ok(w, db), **kw) or \
+            camera.frame_for(busy, db, dz_lo, accept=lambda w, db=db: view_ok(w, db) and not camera.is_jump(w, wide, SW, SH),
                              **kw)
         if dw is None:
             any_ = camera.frame_for(busy, db, dz, **kw) or camera.frame_for(
                 busy, db, dz_lo, accept=lambda w: not camera.is_jump(w, wide, SW, SH), **kw)
-            why = "разрезал бы голову героя" if any_ else "деталь не помещается в план"
+            if any_ is None:
+                why = "деталь не помещается в план"
+            elif not view_ok(any_, db, ink=False):
+                why = "разрезал бы голову или тело героя"
+            else:
+                why = "вокруг детали пустая бумага"
             notes.append(f"крупный план «{o.get('name')}» не делается: {why}")
             continue
         if max((db[2] - db[0])/(dw[2] - dw[0]), (db[3] - db[1])/(dw[3] - dw[1])) < DETAIL_FILL:
@@ -315,7 +414,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             for k in (0.5, 0.3, 0.0, -0.3):
                 w = camera.window(wcx + (fx - wcx)*k, wcy + (fy - wcy)*k, (wide[2] - wide[0])/zf, SW, SH)
                 # в него можно склеиться из крупных планов без «скачка»
-                if head_ok(w, (0, 0, 0, 0)) and not any(camera.is_jump(w, v, SW, SH) for v in views):
+                if view_ok(w) and not any(camera.is_jump(w, v, SW, SH) for v in views):
                     wide_alt = w
                     break
             if wide_alt is not None:
@@ -324,18 +423,20 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     used = {0}
     order = {"i": 0}
 
-    def next_view(cur):
+    def next_view(cur, must=()):
+        """Следующий план; must — рамки, которые обязаны быть в нём целиком (удерживаемая
+        надпись). Нет ни одного подходящего — None."""
         n_ = len(cycle)
         for fresh in (True, False):
             for step in range(1, n_ + 1):
                 j = (order["i"] + step) % n_
                 v = cycle[j]
-                if (fresh and j in used) or v == cur or camera.is_jump(cur, v, SW, SH):
+                if (fresh and j in used) or v == cur or camera.is_jump(cur, v, SW, SH) or not shows(v, must):
                     continue
                 order["i"] = j
                 used.add(j)
                 return v
-        return wide
+        return wide if (wide != cur and shows(wide, must)) else None
 
     def split(t0, t1, win):
         """Равные куски не длиннее MAX_VIEW_SEC, склейки на началах слов (без таймингов — в расчётной
@@ -360,7 +461,10 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             ideal = t0 + (t1 - t0)/k
             s_ = phrase_cut(max(lo, ideal - 0.8), min(hi, ideal + 0.8)) if hi >= lo else None
             if s_ is None:
-                s_ = snap(max(t0 + (t1 - t0)/k, lo), lo, t1 - MIN_VIEW_SEC)
+                # без таймингов речи куски вышли бы ровными до миллисекунды (эп.01 08.10: семь планов
+                # 3.0–3.6 с подряд, разброс длин CV 0.20): детерминированный сдвиг до ±0.5 с от ровной точки
+                jit = 0.0 if starts else (_stable01((round(T0, 2), round(t0, 2), k)) - 0.5)*1.0
+                s_ = snap(min(max(ideal + jit, lo), hi) if hi >= lo else max(ideal, lo), lo, t1 - MIN_VIEW_SEC)
             if s_ is None:
                 # окно целиком занято письмом (мысль, акцент): склейка — сразу после того, как дописано и
                 # постояло, если до конца кадра ещё есть план (живой эп.01: кадр с мыслью шёл 6,8 с одним планом)
@@ -371,7 +475,16 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
                             break
             if s_ is None:
                 break
-            nxt = next_view(cur)
+            nxt = next_view(cur, held_boxes(s_))
+            if nxt is None:
+                # ни один план не держит дописанную надпись целиком — склейка ждёт конца удержания
+                he = hold_end(s_)
+                s2 = snap(he, he, t1 - MIN_VIEW_SEC) if he <= t1 - MIN_VIEW_SEC + 1e-6 else None
+                nxt = next_view(cur, held_boxes(s2)) if s2 is not None else None
+                if nxt is None:
+                    notes.append(f"склейка {s_:.2f} с не делается: надпись должна достоять на экране")
+                    break
+                s_ = s2
             if nxt != wide and accent_time is not None and accent_time - MAX_VIEW_SEC - CUT_SNAP_SEC <= s_ <= accent_time + 1.5:
                 break           # акцент встаёт на общем плане: на среднем ему нет места (живой прогон)
             cur = nxt
@@ -402,6 +515,20 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
                 continue
             cur = wa
             segs.append(dict(t0=a, t1=b, kind="drift", win=wa, zoom_in=zi))
+    # направление дрейфа — от смысла склейки, а не от чётности кадра (эп.01 08.10: все 14 планов один дрейф,
+    # лицо на «только открыть» шло ОТЪЕЗДОМ): склейка крупнее — камера продолжает приближаться, общее —
+    # отпускает; пока стоит дописанная мысль — наезд к ней; первый план кадра — по чередованию кадров
+    prev_z = None
+    for sg in segs:
+        z_ = camera.zoom_of(sg.get("win_to") or sg["win"], SW, SH)
+        if sg["kind"] == "drift" and prev_z is not None:
+            if z_ > prev_z*1.02:
+                sg["zoom_in"] = True
+            elif z_ < prev_z/1.02:
+                sg["zoom_in"] = False
+            if held_boxes(sg["t0"]) or (key_time is not None and sg["t0"] <= key_time < sg["t1"]):
+                sg["zoom_in"] = True
+        prev_z = z_
     # схема собирается по голосу: на каждой названной части камера чуть наклоняется к ней
     for sg in segs:
         if sg["kind"] != "drift" or sg["win"] != wide:
@@ -442,7 +569,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             notes.append(f"план {sg['t0']:.1f}-{sg['t1']:.1f} с без смены: другого плана без разреза рисунка нет")
     return dict(segments=segs, label_times=label_times, key_time=key_time, accent_time=accent_time,
                 punch_at=(T0 + punch[0]) if punch else None, punch_name=punch[2] if punch else None,
-                notes=notes)
+                notes=notes, views=dict(wide=wide, medium=medium, details=details, wide_alt=wide_alt))
 
 
 def window_at(p, t, SW, SH):

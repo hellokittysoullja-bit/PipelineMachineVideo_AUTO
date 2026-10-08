@@ -639,6 +639,23 @@ def key(t, pts, default=0.0):
         if t0 <= t <= t1: return v0 + (v1 - v0) * float(smooth((t - t0) / max(t1 - t0, 1e-6)))
     return pts[-1][1]
 
+BLINK_MIN_GAP = 0.3     # между морганиями не меньше (двойное — 0.32 с, остаётся)
+END_QUIET_SEC = 0.5     # за столько до конца клипа новых движений век нет
+
+
+def thin_blinks(blinks, dur):
+    """Моргания по порядку, ближе BLINK_MIN_GAP к предыдущему — выбрасываются, в последние END_QUIET_SEC
+    клипа — тоже (веко закрывается 0.08 с и открывается 0.17 с — должно успеть)."""
+    out = []
+    for b in sorted(blinks):
+        if b > dur - END_QUIET_SEC:
+            continue
+        if out and b - out[-1] < BLINK_MIN_GAP:
+            continue
+        out.append(b)
+    return out
+
+
 def plan(dur, actions, seed=7):
     """Сценарий -> ключи. Фон жизни генерируется сам, действия из списка его перекрывают."""
     rng = np.random.default_rng(seed)
@@ -694,7 +711,11 @@ def plan(dur, actions, seed=7):
             WV.append((t0, t0 + up, t0 + up + n * per, t0 + up + n * per + .22, per))
         elif kind == "blink":
             blinks.append(t0)
-    blinks.sort(); head.sort()
+    # моргания не пачками и не у самой склейки (сравнение 08.10: три смыкания век за 0.62 с перед резом,
+    # интервалы 0.08 с; интервал ≥ BLINK_MIN_GAP, двойное (0.32 с) остаётся, последнее — не позже
+    # END_QUIET_SEC до конца клипа: движение, срезанное склейкой, читается как сбой)
+    blinks = thin_blinks(blinks, dur)
+    head.sort()
     def state(t):
         lid = 0.
         for b in blinks:                       # веко: быстро вниз (80 мс), пауза, медленнее вверх (170 мс),

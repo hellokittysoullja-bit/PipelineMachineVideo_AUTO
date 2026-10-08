@@ -365,6 +365,18 @@ class Generator:
             info[p]["answers"] = ans
             if ans is not None and not shot_judge.shows_nothing(spec, ans, info[p]["grid"]):
                 info[p]["vector"] = shot_judge.claims_vector(spec, ans, cg_veto=False)
+            # обязательное утверждение с явным «нет» — брак раунда, а не «ok» (эп.01 08.10: на фразу
+            # «договорись только ОТКРЫТЬ письмо» прошёл кадр с запечатанным конвертом — спецификация
+            # требовала «the envelope is open», судья ответил «нет», а правило «хоть одно must» приняло);
+            # исчерпаны раунды — лучший такой кадр всё же идёт на экран со статусом weak (frame())
+            if ans is not None:
+                got = ans.get("claims") or {}
+                failed = [c["id"] for c in spec["claims"] if c.get("tier") == "must" and got.get(c["id"]) == "no"
+                          and c.get("id") != "nofig"]
+                if failed and info[p]["vector"] is not None:
+                    info[p]["must_failed"] = failed
+                    info[p]["weak_vector"] = info[p]["vector"]
+                    info[p]["vector"] = None
             # кадр куклы: любая фигура — брак, одним утверждением (общее правило «брак, если не выполнено
             # НИ ОДНО обязательное» здесь не срабатывает: конверт-то виден — живой случай 07.10)
             if frame.get("hero_live") and ((ans or {}).get("claims") or {}).get("nofig") == "no":
@@ -432,6 +444,19 @@ class Generator:
                 if ok:
                     return done(p, info)
         good = ranked()
+        if not good:
+            # все раунды — кадры с проваленным must-утверждением: лучший из них идёт на экран со статусом
+            # weak (на экране лучше близкий кадр, чем пустота/сосед), провал записан поимённо
+            weak = [p for p, i in pool.items() if i.get("must_failed") and i["text_ok"] is not False
+                    and not (i["grid"] is not None and i["grid"] <= 0)]
+            weak.sort(key=lambda p: (pool[p]["weak_vector"] or (), pool[p]["grid"] or 0), reverse=True)
+            for p in weak[:1]:
+                ok, info = labels.compose(p, out, frame, self.jgw, self.jmodel, self.judge_cache, flat_paper=self.flat_paper)
+                tries.append({"variant": os.path.basename(p), "ok": ok, "info": info, "weak": True})
+                if ok:
+                    r_ = done(p, info)
+                    r_.update(status="weak", must_failed=pool[p]["must_failed"])
+                    return r_
         if good:
             # Годный рисунок, но места под подпись не нашлось ни в одном раунде:
             # подпись — на полосе цвета фона, а не выброс кадра (иначе на экране

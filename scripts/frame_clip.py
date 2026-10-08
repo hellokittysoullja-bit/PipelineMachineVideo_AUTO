@@ -138,6 +138,22 @@ def key_layout(fr, text, win, seed=9):
     return writeon.layout(text, size, W, H, cx, cy, seed=seed, max_w=KEY_MAX_W*W), (cx, cy), size
 
 
+def letters_box_world(letters, win):
+    """Рамка надписи (раскладка writeon.layout в экранных координатах окна win) в координатах холста."""
+    xs, ys = [], []
+    for L in letters or []:
+        for m in [L.get("soft")] + list(L.get("dots") or []):
+            if m is None:
+                continue
+            yy, xx = np.nonzero(m > 0.2)
+            if len(xx):
+                xs += [int(xx.min()), int(xx.max())]; ys += [int(yy.min()), int(yy.max())]
+    if not xs:
+        return None
+    s_ = (win[2] - win[0])/W
+    return (win[0] + min(xs)*s_, win[1] + min(ys)*s_, win[0] + (max(xs) + 1)*s_, win[1] + (max(ys) + 1)*s_)
+
+
 KEY_SPEEDUPS = (1.0, 1.25, 1.5)   # не успевает дописаться и постоять — карандаш быстрее, но не больше чем в 1.5 раза
 
 
@@ -194,13 +210,32 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
             if at is None or at + acc_dur + shots.KEY_HOLD_SEC <= D - 0.2:
                 break
     p, speed = None, 1.0
-    for speed in (KEY_SPEEDUPS if key_l else (1.0,)):
-        key_dur = writeon.plan(key_l[0], fps, factor=speed)[1] if key_l else 0.0
-        p = shots.plan(D, fr["busy"], words, fr["recs"], fr["objects"], key if key_l else None, key_dur,
-                       last_punch=last_punch, T0=T0, zoom_in=zoom_in, parts=parts,
-                       accent=accent if acc_l else None, accent_dur=acc_dur, first_of_film=first_of_film)
-        if not key_l or p["key_time"] is not None:
+    key_box = acc_box = None
+    for _pass in range(3):
+        # план -> раскладка надписи в окне момента -> рамка надписи -> план заново, уже с рамкой: пока
+        # дописанное стоит, склейки идут только в планы, где оно целиком в кадре (shots.plan, key_box)
+        for speed in (KEY_SPEEDUPS if key_l else (1.0,)):
+            key_dur = writeon.plan(key_l[0], fps, factor=speed)[1] if key_l else 0.0
+            p = shots.plan(D, fr["busy"], words, fr["recs"], fr["objects"], key if key_l else None, key_dur,
+                           last_punch=last_punch, T0=T0, zoom_in=zoom_in, parts=parts,
+                           accent=accent if acc_l else None, accent_dur=acc_dur, first_of_film=first_of_film,
+                           key_box=key_box, accent_box=acc_box)
+            if not key_l or p["key_time"] is not None:
+                break
+        nb_key = nb_acc = None
+        if key_l and p["key_time"] is not None:
+            kl_ = key_layout(fr, key, shots.window_at(p, p["key_time"], fr["SW"], fr["SH"]))
+            nb_key = letters_box_world(kl_[0], shots.window_at(p, p["key_time"], fr["SW"], fr["SH"])) if kl_ else None
+        if acc_l and p.get("accent_time") is not None:
+            win_ = shots.window_at(p, p["accent_time"], fr["SW"], fr["SH"])
+            al_ = accent_layout(fr, accent, win_)
+            nb_acc = letters_box_world(al_[0], win_) if al_ else None
+
+        def _same(a, b):
+            return (a is None and b is None) or (a is not None and b is not None and max(abs(x - y) for x, y in zip(a, b)) < 2.0)
+        if _same(nb_key, key_box) and _same(nb_acc, acc_box):
             break
+        key_box, acc_box = nb_key, nb_acc
     p["assemble"] = bool(fr.get("assemble"))
     if mascot and ms is None:
         p["notes"].append("живой кукле нет места рядом с предметом — кадр без неё" if mascot_live.available()
@@ -233,7 +268,7 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
         win = shots.window_at(p, p["key_time"], fr["SW"], fr["SH"])
         kl = key_layout(fr, key, win)
         if kl and writeon.plan(kl[0], fps, factor=speed)[1] <= key_dur*1.05 + 0.1:
-            p["key"] = dict(text=key, win=win, center=kl[1], size=kl[2], speed=speed)
+            p["key"] = dict(text=key, win=win, center=kl[1], size=kl[2], speed=speed, dur=key_dur)
         else:
             p["notes"].append(f"главной мысли «{key}» нет места в плане момента — не пишется")
             p["key_time"] = None

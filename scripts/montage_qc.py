@@ -222,13 +222,41 @@ def sharpness_metrics(sc, plans):
     return dict(sharpness_cv=float(np.median(cvs)) if cvs else None)
 
 
-def length_metrics(plans):
+WRITING_PLAN_SLACK_SEC = 0.7   # план с рукописной мыслью кончается сразу после удержания: допуск на снап склейки к слову
+
+
+def writing_windows(video_dir):
+    """[(старт, конец удержания)] рукописных мыслей в глобальном времени — из shots_report.json
+    (клипы по порядку, T0 — сумма длительностей). Нет отчёта или поля — пусто."""
+    try:
+        clips = json.load(open(os.path.join(video_dir, "media_plan", "shots_report.json"), encoding="utf-8"))["clips"]
+    except (OSError, ValueError, KeyError):
+        return []
+    out, t0 = [], 0.0
+    for c in clips:
+        if "duration" not in c:
+            continue
+        if c.get("key_at") is not None and c.get("key_hold_until") is not None:
+            out.append((t0 + float(c["key_at"]), t0 + float(c["key_hold_until"])))
+        t0 += float(c["duration"])
+    return out
+
+
+def length_metrics(plans, writing=()):
+    """writing — окна «пишется и стоит» рукописной мысли: план, в котором она пишется, по замыслу держится до
+    конца удержания (склейка на время письма запрещена, обрезать надпись нельзя) и в plan_max не входит,
+    если кончается не позже конца удержания + допуск. Прежний ролик эп.01 держал такой план 4,83 с, новый —
+    4,54; оба длиннее нормы 3,5 ровно на письмо + 1,5 с удержания."""
     L = np.array([b - a for a, b in plans])
     if len(L) == 0:
         return dict(plan_max_sec=None, plan_len_cv=None, plan_near_equal_share=None)
     near = float(np.mean(np.abs(np.diff(L)) < 0.2)) if len(L) > 1 else None
-    return dict(plan_max_sec=float(L.max()), plan_len_cv=float(L.std() / L.mean()) if len(L) > 2 else None,
-                plan_near_equal_share=near, plans=len(L), plan_mean_sec=float(L.mean()))
+    def is_writing(a, b):
+        return any(a <= w0 + 0.3 and b <= w1 + WRITING_PLAN_SLACK_SEC and b > w0 for w0, w1 in writing)
+    plain = [b - a for a, b in plans if not is_writing(a, b)]
+    return dict(plan_max_sec=float(max(plain)) if plain else 0.0, plan_len_cv=float(L.std() / L.mean()) if len(L) > 2 else None,
+                plan_near_equal_share=near, plans=len(L), plan_mean_sec=float(L.mean()),
+                writing_plans=int(len(L) - len(plain)))
 
 
 def hook_metrics(plans, cuts, silences):
@@ -279,7 +307,7 @@ def build(video_dir, video_path=None):
     sc = scan(video_path)
     plans = plan_bounds(cuts, total, pic)
     m = {}
-    m.update(length_metrics(plans)); m.update(speed_metrics(sc, plans)); m.update(direction_metrics(sc, plans, pic, total))
+    m.update(length_metrics(plans, writing_windows(video_dir))); m.update(speed_metrics(sc, plans)); m.update(direction_metrics(sc, plans, pic, total))
     m.update(cut_metrics(sc, cuts)); m.update(sharpness_metrics(sc, plans)); m.update(hook_metrics(plans, cuts, silences))
     if cuts and silences is not None:
         m["cuts_in_silence_share"] = float(np.mean([vt.inside_silence(c, silences, pad=0.05) for c in cuts]))

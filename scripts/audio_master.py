@@ -306,7 +306,17 @@ def audio_qc(path, label="Audio QC"):
           else f"{label}: клиппинга/аномальной громкости не найдено")
 
 
-def build_master_af(loud_stats, fade_out_st, fade_in_sec):
+NO_VOICE_I = -40.0   # интегральная громкость сведения ниже этого — голоса в нём нет, loudnorm не применяется
+
+
+def _measured_i(loud_stats):
+    try:
+        return float(loud_stats["input_i"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def build_master_af(loud_stats, fade_out_st, fade_in_sec, voiceless=False):
     """Мастер-цепочка финального прохода: loudnorm -> лимитер -> фейды.
 
     Вынесено из main() отдельной функцией, чтобы порядок ступеней можно было
@@ -325,7 +335,13 @@ def build_master_af(loud_stats, fade_out_st, fade_in_sec):
     тем более уместен.
     """
     base = f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA}"
-    if loud_stats:
+    if voiceless or (loud_stats and _measured_i(loud_stats) is not None and _measured_i(loud_stats) < NO_VOICE_I):
+        # дорожка без голоса (превью, заглушка): нормализовать нечего — loudnorm поднял бы единственный
+        # звук (штрих карандаша) до −14 LUFS (превью эп.01 08.10: пик −1.4 dBFS; интегральная громкость
+        # с гейтом ebur128 у одиночного штриха −28 LUFS, поэтому порог по input_i его не ловит — сборщик
+        # передаёт voiceless по замеру дорожки голоса); уровень оставляем как есть
+        base = "anull"
+    elif loud_stats:
         base += (f":linear=true:measured_I={loud_stats['input_i']}:"
                  f"measured_TP={loud_stats['input_tp']}:"
                  f"measured_LRA={loud_stats['input_lra']}:"
