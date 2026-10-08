@@ -3124,3 +3124,5 @@
 {"stage": "clip_render", "t_wall": 58.3357, "ok": true, "pid": 1678, "ts": 1791460295.078, "clip_idx": 120, "fn": "kenburns"}
 {"stage": "clip_render", "t_wall": 74.4017, "ok": true, "pid": 2340, "ts": 1791460368.427, "clip_idx": 123, "fn": "video_render"}
 {"stage": "slot_total", "t_wall": 286.8281, "ok": true, "pid": 360, "ts": 1791460372.118, "clip_idx": 124}
+{"stage": "assembly_xfade", "t_wall": 1057.5884, "ok": true, "pid": 360, "ts": 1791461429.707, "n_clips": 124}
+{"stage": "final_mux", "t_wall": 50.7213, "ok": true, "pid": 360, "ts": 1791461602.853}
