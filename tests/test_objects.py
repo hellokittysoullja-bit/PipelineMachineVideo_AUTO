@@ -55,7 +55,7 @@ def test_locate_returns_pixels_and_caches(tmp_path):
     assert recs[1]["box"] is None and recs[1]["why"] == "внутри пустая бумага"
     objects.objects_for(gw, "m", str(p), {"zoom": {"object": "box", "word": "ящик"},
                                           "spec": {"subject": "sky"}}, None, str(tmp_path))
-    assert gw.calls == 1
+    assert gw.calls == 2          # один вопрос про детали под крупные планы (кэш) + одни рамки (кэш)
 
 
 def test_key_anchor_is_searched_only_with_a_key():

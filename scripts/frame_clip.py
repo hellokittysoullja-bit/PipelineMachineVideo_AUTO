@@ -164,7 +164,8 @@ def accent_layout(fr, text, win, seed=11):
     return writeon.layout(text, size, W, H, cx, cy, seed=seed, max_w=KEY_MAX_W*W), (cx, cy), size
 
 
-def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps=24, accent=None, mascot=None):
+def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps=24, accent=None, mascot=None,
+              first_of_film=False):
     """План кадра (shots.plan) + раскладка главной мысли. Главная мысль, которой
     нет места, не пишется — с записью в notes. Не успевает — пишется быстрее
     (KEY_SPEEDUPS), а не пропадает: живой ролик 04.10 потерял «только открыть»,
@@ -197,7 +198,7 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
         key_dur = writeon.plan(key_l[0], fps, factor=speed)[1] if key_l else 0.0
         p = shots.plan(D, fr["busy"], words, fr["recs"], fr["objects"], key if key_l else None, key_dur,
                        last_punch=last_punch, T0=T0, zoom_in=zoom_in, parts=parts,
-                       accent=accent if acc_l else None, accent_dur=acc_dur)
+                       accent=accent if acc_l else None, accent_dur=acc_dur, first_of_film=first_of_film)
         if not key_l or p["key_time"] is not None:
             break
     p["assemble"] = bool(fr.get("assemble"))

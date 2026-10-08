@@ -75,7 +75,8 @@ def test_place_puts_the_doll_beside_the_subject_and_marks_occupancy(tmp_path):
     assert y1 <= 0.86 * fr["SH"] + 1 and y0 >= 0.06 * fr["SH"] - 1  # внутри безопасной зоны
     assert ms["gaze"][0] > 0.5                                       # смотрит вправо, на предмет
     assert (fr["busy"][int(y0):int(y1), int(x0):int(x1)] >= 1).all() and busy0.max() <= 1
-    assert fr["objects"][-1]["role"] == "hero"
+    assert [o["role"] for o in fr["objects"][-2:]] == ["hero", "hero_head"]
+    hb = fr["objects"][-1]["box"]; assert hb[3] < y1 and hb[1] == y0        # голова — верх силуэта
     changed = np.abs(fr["final_rgb"].astype(int) - final0.astype(int)).max(2) > 8
     ys, xs = np.nonzero(changed)                                     # кот в покое впечатан в источник занятости
     assert changed.sum() > 10000 and xs.min() >= x0 - 2 and xs.max() <= x1 + 2 and ys.min() >= y0 - 2

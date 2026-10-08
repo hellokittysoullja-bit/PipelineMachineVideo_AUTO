@@ -319,3 +319,31 @@ def test_palette_without_hero_drops_the_character_sentence():
     assert "main character's orange tail flame" not in p and "no character, creature" in p
     p2 = fg.build_prompt({"kind": "scene", "picture": "the main character sits", "hero": True}, 2, True, palette=pal)
     assert "main character's orange tail flame" in p2          # с героем палитра прежняя
+
+
+def test_drawn_frame_survives_prompt_wording_change_but_not_plan_change(tmp_path):
+    """Отпечаток плана: правка обёртки задания в коде не перерисовывает оплаченный кадр, правка плана
+    (описание, герой) — перерисовывает; кадр старого образца без отпечатка годен по ключу фразы."""
+    import frame_generator as fg
+
+    class B:
+        model, size, quality = "m", "1536x1024", "low"
+
+    class L:
+        hero = None; style = ["a", "b"]
+        def signature(self, h): return "look"
+    g = fg.Generator.__new__(fg.Generator); g.backend = B(); g.look = L()
+    f = {"index": 0, "key": "k1", "kind": "scene", "labels": [], "hero": False, "picture": "one envelope on the floor"}
+    s1 = g.plan_sig(f)
+    assert s1 == g.plan_sig(dict(f, details=["x"], accent="пять минут"))        # детали и акцент — не рисунок
+    assert s1 != g.plan_sig(dict(f, picture="one open envelope"))
+    assert s1 != g.plan_sig(dict(f, key="k2"))
+    done = {0: ("k1", s1), 1: ("k2", None)}
+    assert fg.frame_is_done(done, f, s1) and not fg.frame_is_done(done, f, "other")
+    assert fg.frame_is_done(done, {"index": 1, "key": "k2"}, "whatever")          # старый образец — по ключу
+    assert not fg.frame_is_done(done, {"index": 1, "key": "k3"}, "whatever")
+    mp = tmp_path / "media_plan"; mp.mkdir()
+    json.dump({"frames": [{"index": 1, "key": "k2", "status": "ok", "path": "frames/002.png"}]},
+              open(mp / "frames_report.json", "w"))
+    assert fg.stamp_plan_sigs(str(tmp_path), {1: "ps"}) == 1
+    assert json.load(open(mp / "frames_report.json"))["frames"][0]["plan_sig"] == "ps"

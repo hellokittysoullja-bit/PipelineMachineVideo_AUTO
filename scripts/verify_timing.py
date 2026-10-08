@@ -183,7 +183,43 @@ def frame_diff_curve(video_path, w=DIFF_W, h=DIFF_H):
     return fps, diffs
 
 
-def cuts_from_curve(fps, diffs, ratio=DIFF_PEAK_RATIO):
+SHARE_PIXEL_STEP = 24      # пиксель «изменился», если хоть один канал ушёл дальше этого (64x36, uint8)
+SHARE_MIN_ABS = 8.0        # % изменившихся пикселей на склейке: замер эп.01 — склейки 21–60%, дрейф камеры ≤1.9%
+
+
+def frame_change_share_curve(video_path, w=DIFF_W, h=DIFF_H, step=SHARE_PIXEL_STEP):
+    """Доля (в процентах) пикселей, изменившихся между соседними кадрами сильнее step.
+
+    Зачем вторая кривая: медиана разницы (frame_diff_curve) на рисунке на бумаге равна нулю даже
+    на настоящей склейке — большинство пикселей и до, и после склейки это та же бумага (живой эп.01:
+    5 склеек из 11 пропущены, у двух из них медиана 3–4 при пороге 4). Доля изменившихся пикселей
+    разделяет чисто: склейки ≥ 21%, дрейф камеры ≤ 1.9%. Возвращает (fps, [доля_%, ...])."""
+    try:
+        import numpy as np
+    except Exception:
+        return None, []
+    fps = video_fps(video_path) or 24.0
+    cmd = [FFMPEG, "-v", "error", "-i", video_path, "-an",
+           "-vf", f"scale={w}:{h},format=rgb24", "-f", "rawvideo", "-"]
+    frame_bytes = w * h * 3
+    out, prev = [], None
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        while True:
+            buf = proc.stdout.read(frame_bytes)
+            if not buf or len(buf) < frame_bytes:
+                break
+            cur = np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 3).astype(np.int16)
+            if prev is not None:
+                out.append(float((np.abs(cur - prev).max(axis=2) > step).mean() * 100.0))
+            prev = cur
+    finally:
+        proc.stdout.close()
+        proc.wait()
+    return fps, out
+
+
+def cuts_from_curve(fps, diffs, ratio=DIFF_PEAK_RATIO, min_abs=DIFF_MIN_ABS):
     """Моменты смены кадра — пики кривой разницы над СВОИМ локальным фоном.
 
     Почему локальный фон, а не один порог на файл: у неподвижного фото под
@@ -198,11 +234,11 @@ def cuts_from_curve(fps, diffs, ratio=DIFF_PEAK_RATIO):
     n = len(diffs)
     peaks = []
     for i, d in enumerate(diffs):
-        if d < DIFF_MIN_ABS:
+        if d < min_abs:
             continue
         lo, hi = max(0, i - half), min(n, i + half + 1)
         local = _median(diffs[lo:hi]) or 0.0
-        if d >= max(DIFF_MIN_ABS, ratio * local):
+        if d >= max(min_abs, ratio * local):
             peaks.append(i)
     # Одно событие (особенно диссолв) даёт несколько соседних кадров над
     # порогом — берём кадр с максимальной разницей внутри группы.

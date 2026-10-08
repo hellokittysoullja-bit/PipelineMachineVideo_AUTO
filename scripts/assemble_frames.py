@@ -305,7 +305,8 @@ def main(video_dir):
         key, accent, why = writing_budget(written, job["T0"], key, job.get("accent"), reserved)
         shot_log += [{"index": kept[k], "note": n} for n in why]
         p = frame_clip.plan_clip(fr, job["dur"], job["words"], key=key, last_punch=last_punch,
-                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS, accent=accent, mascot=job.get("mascot"))
+                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS, accent=accent, mascot=job.get("mascot"),
+                                 first_of_film=(k == 0))
         if p["punch_at"] is not None:
             last_punch = p["punch_at"]
         if p.get("key_time") is not None and p.get("key"):

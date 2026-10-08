@@ -148,7 +148,10 @@ def place(fr, spec):
     gaze = [float(np.clip((cx - ex) / (0.45 * SW), -1, 1)), float(np.clip((cy - ey) / (0.45 * SH), -1, 1))]
     m = BUSY_MARGIN
     fr["busy"][max(0, int(y0) - m):int(y0 + ch) + m, max(0, int(x0) - m):int(x0 + cw) + m] = 1.0
-    fr["objects"] = list(fr["objects"]) + [dict(name="hero", box=tuple(box), word=None, role="hero")]
+    hy1 = oy + R.r["head_below_y"] * s                                   # голова куклы — крупный план для монтажа
+    head = (box[0], box[1], box[2], float(min(box[3], hy1)))
+    fr["objects"] = list(fr["objects"]) + [dict(name="hero", box=tuple(box), word=None, role="hero"),
+                                           dict(name="the head of the hero", box=head, word=None, role="hero_head")]
     # раскладка мысли и акцента считает занятость САМА — по final_rgb (placement.choose_fit), а не по
     # fr["busy"]; без кота в final_rgb мысль легла бы ему на голову (пилот 07.10: центр мысли (635,360)
     # внутри рамки кота). Кот в покое впечатывается в final_rgb на своё место.

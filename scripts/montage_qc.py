@@ -262,8 +262,10 @@ def build(video_dir, video_path=None):
         rep["verdict"] = "no_video"; rep["checks"] = {}
         return rep, EXIT_BLOCK
     total = vt.media_duration(video_path) or 0.0
-    fps_d, diffs = vt.frame_diff_curve(video_path)
-    cuts, _ = vt.cuts_from_curve(fps_d, diffs)
+    # склейки — по доле изменившихся пикселей, не по медиане разницы: на рисунке на бумаге медиана
+    # равна нулю и на настоящей склейке (эп.01: 5 из 11 склеек пропущены) — см. frame_change_share_curve
+    fps_d, diffs = vt.frame_change_share_curve(video_path)
+    cuts, _ = vt.cuts_from_curve(fps_d, diffs, min_abs=vt.SHARE_MIN_ABS)
     silences = vt.detect_silences(video_path)
     pic = []
     pt = os.path.join(video_dir, "media_plan", "phrase_timeline.json")

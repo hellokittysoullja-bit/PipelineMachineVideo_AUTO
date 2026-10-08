@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import env  # noqa: E402
 import labels  # noqa: E402
 
+PLAN_SIG_VERSION = 1
 GEN_VERSION = 7
 TEXT_MATCH_MIN = 1.0        # только точное совпадение букв (см. докстринг, п.2)
 VERIFY_TOP = 3              # сколько лучших по сетке проверять по утверждениям
@@ -268,6 +269,23 @@ class Generator:
                              f"{self.look.signature(with_hero)}|{prompt}".encode("utf-8")).hexdigest()[:20]
         return prompt, with_hero, sig
 
+    def plan_sig(self, frame):
+        """Отпечаток ПЛАНА кадра — того, что решает, что нарисовано: фраза, описание, герой и его
+        состояние, подписи, предмет наезда, место под мысль, модель, размер, качество, облик.
+        Формулировка задания в него НЕ входит: правка обёртки промпта в коде (08.10: палитра без героя)
+        обесценивала оплаченные и принятые судьёй кадры, а два кадра эпизода 01 ждали перерисовки
+        только потому, что рисовались старым форматом задания."""
+        with_hero = bool(frame.get("hero")) and self.look.hero is not None
+        b = self.backend
+        core = json.dumps({"key": frame.get("key"), "kind": frame.get("kind"), "labels": frame.get("labels") or [],
+                           "hero": with_hero, "hero_state": frame.get("hero_state") if with_hero else None,
+                           "hero_live": bool(frame.get("hero_live")), "picture": _tidy(frame.get("picture") or ""),
+                           "zoom": (frame.get("zoom") or {}).get("object"),
+                           "key_near": frame.get("key_near") if frame.get("key_thought") else None,
+                           "has_key": bool(frame.get("key_thought"))}, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(f"{PLAN_SIG_VERSION}|{labels.COMPOSE_VERSION}|{b.model}|{b.size}|{b.quality}|"
+                              f"{self.look.signature(with_hero)}|{core}".encode("utf-8")).hexdigest()[:20]
+
     # --- рисование с кэшем по (модель, размер, качество, облик, промпт, вариант)
     def _variant(self, prompt, v, with_hero):
         b = self.backend
@@ -367,7 +385,8 @@ class Generator:
 
     def frame(self, frame):
         prompt, with_hero, sig = self.task(frame)
-        rec = {"index": frame["index"], "key": frame.get("key"), "sig": sig, "kind": frame["kind"],
+        rec = {"index": frame["index"], "key": frame.get("key"), "sig": sig, "plan_sig": self.plan_sig(frame),
+               "kind": frame["kind"],
                "labels": frame.get("labels"), "hero": with_hero, "prompt": prompt, "rounds": [], "path": None}
         out = os.path.join(self.out_dir, f"{frame['index'] + 1:03d}.png")
         pool, tries = {}, []
@@ -432,12 +451,42 @@ class Generator:
 
 
 def done_sigs(video_dir):
-    """{номер кадра: отпечаток} готовых кадров из отчёта (годных к показу)."""
+    """{номер кадра: (ключ фразы, отпечаток плана или None)} готовых кадров из отчёта (годных к показу).
+    Кадр без plan_sig нарисован до 08.10 — считается годным по ключу фразы и получает отпечаток
+    при следующем запуске (stamp_plan_sigs), без перерисовки."""
     try:
         frames = json.load(open(os.path.join(video_dir, "media_plan", "frames_report.json"), encoding="utf-8"))["frames"]
     except (OSError, ValueError, KeyError):
         return {}
-    return {r["index"]: r.get("sig") for r in frames if r.get("status") not in ("rejected", "failed")}
+    return {r["index"]: (r.get("key"), r.get("plan_sig")) for r in frames if r.get("status") not in ("rejected", "failed")}
+
+
+def frame_is_done(done, frame, plan_sig):
+    """Готовый кадр берётся, если его план не изменился: совпал отпечаток плана, либо (кадр старого
+    образца без отпечатка) совпал ключ фразы."""
+    key, ps = done.get(frame["index"], (None, None))
+    if key is None:
+        return False
+    return ps == plan_sig if ps else key == frame.get("key")
+
+
+def stamp_plan_sigs(video_dir, sigs):
+    """Проставить отпечатки плана кадрам старого образца в отчёте (один раз, без перерисовки)."""
+    path = os.path.join(video_dir, "media_plan", "frames_report.json")
+    try:
+        rep = json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    n = 0
+    for r in rep.get("frames", []):
+        if not r.get("plan_sig") and r["index"] in sigs and r.get("status") not in ("rejected", "failed"):
+            r["plan_sig"] = sigs[r["index"]]
+            n += 1
+    if n:
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(rep, f, ensure_ascii=False, indent=1)
+        os.replace(path + ".tmp", path)
+    return n
 
 
 def write_report(video_dir, recs, extra):
@@ -480,11 +529,16 @@ def main():
     only = {int(x) - 1 for x in a.only.split(",") if x.strip()}
     done = done_sigs(a.video_dir)
     probe = Generator(backend, a.video_dir, look)
-    # Готовый кадр берётся, только если его отпечаток совпал: фраза, промпт,
-    # модель и облик те же. Правка сценария, плана или образцов — перерисовка.
+    # Готовый кадр берётся, только если его ПЛАН совпал: фраза, описание, герой, подписи, модель и
+    # облик те же. Правка сценария, плана или образцов — перерисовка; правка формулировки задания в
+    # коде — нет (plan_sig).
     todo = [f for f in plan["frames"] if (not only or f["index"] in only) and
-            (a.force or done.get(f["index"]) != probe.task(f)[2]
+            (a.force or not frame_is_done(done, f, probe.plan_sig(f))
              or not os.path.exists(os.path.join(a.video_dir, "frames", f"{f['index'] + 1:03d}.png")))]
+    kept = {f["index"]: probe.plan_sig(f) for f in plan["frames"] if f not in todo}
+    stamped = stamp_plan_sigs(a.video_dir, kept)
+    if stamped:
+        print(f"Отпечаток плана проставлен {stamped} готовым кадрам старого образца (без перерисовки)")
     if not todo:
         print("Все кадры уже выбраны.")
         return 0

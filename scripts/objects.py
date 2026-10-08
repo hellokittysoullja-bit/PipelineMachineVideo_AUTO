@@ -29,6 +29,44 @@ For each thing return its tight bounding box [x1, y1, x2, y2] in coordinates 0-1
 Reply with JSON only: {{"boxes": {{"1": [x1, y1, x2, y2] or null, ...}}}}"""
 
 
+DETAILS_PROMPT = """This is a drawing from an explainer film. The editor will cut from the whole picture to 2-3 close shots of its parts while the narration plays. Name up to 3 small, clearly drawn parts of this picture worth their own close shot: each a separate visible thing or part (a hand holding something, a flame, a chain link, a stain, a face), a quarter of the picture or less, never the whole picture or the whole main object. English, 2-6 words each, named so they can be found again.
+Reply with JSON only: {"parts": ["...", "..."]}"""
+MAX_AUTO_DETAILS = 3
+
+
+def suggest_details(gateway, model, img_path, cache_dir=None):
+    """Имена 1-3 частей рисунка под крупные планы — от модели со зрением. Живой эп.01: планировщик
+    (DeepSeek v4 flash) поле details не пишет вообще, и у камеры не было ни одной склейки внутри фразы.
+    Кэш по картинке."""
+    from PIL import Image
+    from labels import _image_part
+    digest = hashlib.sha256(open(img_path, "rb").read()).hexdigest()
+    key = hashlib.sha256(f"details|{VERSION}|{model}|{digest}".encode()).hexdigest()[:20]
+    cp = os.path.join(cache_dir, f"details_{key}.json") if cache_dir else None
+    if cp and os.path.exists(cp):
+        try:
+            return json.load(open(cp, encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    img = Image.open(img_path).convert("RGB")
+    try:
+        answer, _u, _p = gateway.chat(model, [{"type": "text", "text": DETAILS_PROMPT}, _image_part(img)],
+                                      200, 1500, reasoning=False)
+        m = re.search(r"\{.*\}", answer or "", re.S)
+        parts = json.loads(m.group(0)).get("parts") if m else None
+    except Exception:  # noqa: BLE001 — без подсказки камера просто без деталей, как раньше
+        parts = None
+    out = []
+    for x in (parts or [])[:MAX_AUTO_DETAILS]:
+        x = " ".join(str(x or "").split())
+        if x and 1 <= len(x.split()) <= 8 and not re.search(r"[а-яА-ЯёЁ]", x) and x.lower() not in {o.lower() for o in out}:
+            out.append(x)
+    if cp:                                   # и пустой ответ кэшируется: не переспрашивать платно каждый прогон
+        os.makedirs(cache_dir, exist_ok=True)
+        json.dump(out, open(cp, "w", encoding="utf-8"))
+    return out
+
+
 def parse(answer, n):
     m = re.search(r"\{.*\}", answer or "", re.S)
     if not m:
@@ -151,9 +189,16 @@ def wanted(frame, hero_text):
 
 
 def objects_for(gateway, model, img_path, frame, hero_text, cache_dir=None):
-    """Записи для отчёта кадра: [{name, role, word, box | null, why}]."""
+    """Записи для отчёта кадра: [{name, role, word, box | null, why}]. Сцена без деталей от
+    планировщика получает их от судьи (suggest_details) — иначе камере не на что резать."""
+    if gateway is None:
+        return []
+    if frame.get("kind") != "diagram" and not frame.get("details"):
+        auto = suggest_details(gateway, model, img_path, cache_dir)
+        if auto:
+            frame = dict(frame, details=auto, details_by="judge")
     want = wanted(frame, hero_text)
-    if not want or gateway is None:
+    if not want:
         return []
     boxes, why = locate(gateway, model, img_path, [n for n, _r, _w in want], cache_dir)
     return [{"name": n, "role": r, "word": w, "box": boxes.get(n), "why": why.get(n)} for n, r, w in want]

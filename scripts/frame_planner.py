@@ -150,7 +150,7 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     "caption" — the line is a punchline, a verdict or an emotional beat that lands harder written: one drawn moment plus ONE Russian caption of 1-4 words (like «ЖИВ. ПОЛНОСТЬЮ.»).
     "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels — a pyramid, a ladder, arrows from cause to effect, before and after, a list on a board, a timeline, a path of footprints, a crowd shrinking to one figure.
   "zoom" — optional. When the line names ONE concrete object that deserves a close look at the moment it is said (the letter, the timer, the open door): {{"object": "<English name of that object exactly as in your picture>", "word": "<the word of the line at which the camera rushes onto it, copied exactly as written in the line>"}}. The camera then fills the screen with that object for a second or two. null when nothing is worth it; at most one line in three.
-  "details" — 1-3 English names of drawn things in your picture worth their own close shot while the line plays (the chain and the boulder; the smoking tail flame; the sticky blobs on the envelope), each named exactly as in your picture and each a small separate visible part — a quarter of the picture or less, not the whole picture or its main object ("the biggest dripping blob", not "the blobs on the envelope"); [] for a single simple object. The editor cuts between the whole picture and these close shots every 2-3 seconds, so a picture held for a long line needs them.
+  "details" — REQUIRED on every frame (the editor cannot cut without it): 1-3 English names of drawn things in your picture worth their own close shot while the line plays (the chain and the boulder; the smoking tail flame; the sticky blobs on the envelope), each named exactly as in your picture and each a small separate visible part — a quarter of the picture or less, not the whole picture or its main object ("the biggest dripping blob", not "the blobs on the envelope"); [] for a single simple object. The editor cuts between the whole picture and these close shots every 2-3 seconds, so a picture held for a long line needs them.
   "key" — optional: the chapter's main thought, written by hand on the picture as it is said — 1-3 Russian words copied word for word from the line ("только открыть"). Only for the one or two lines of a chapter that carry its main idea; null for all others. With a key, "key_near" — the English name of the drawn thing (from your picture) the words belong next to ("the blank wall calendar"), or null.
   "accent" — optional: 1-3 Russian words copied word for word from the line that pop up on screen in bold as they are said — a number with its unit ("пять минут", "две минуты") or one short punchy word the line hits ("тонну"). Never on a line with a "key"; about one line in three; null otherwise.
   "labels" — Russian, UPPERCASE, at most {max_words} words each, taken from or clearly implied by the line, correctly spelled; empty for "scene". Code writes them on the finished picture.
@@ -233,14 +233,14 @@ For EVERY numbered line decide what the viewer must SEE while hearing it, then d
 {frame_rules}
 
 Three examples from another film. «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
-{{"n": 2, "focus": "a ball bouncing off a wall", "subject": "a ball", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must"}}], "frame": {{"kind": "scene", "labels": [], "hero": false, "picture": "close-up: a red rubber ball in mid-air just after hitting a brick wall, small curved motion lines behind it, a little dust puff at the wall; the ball sits in the right third of the frame, plain light background on the left"}}}}
+{{"n": 2, "focus": "a ball bouncing off a wall", "subject": "a ball", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must"}}], "frame": {{"kind": "scene", "labels": [], "hero": false, "details": ["the dust puff at the wall"], "accent": null, "picture": "close-up: a red rubber ball in mid-air just after hitting a brick wall, small curved motion lines behind it, a little dust puff at the wall; the ball sits in the right third of the frame, plain light background on the left"}}}}
 «First you need food and safety — only then friends, and only then dreams»:
 {{"n": 3, "focus": "needs built from the bottom up", "subject": "a pyramid", "core": "a pyramid of needs is visible", "claims": [{{"id": "c1", "text": "the pyramid has three tiers", "tier": "must"}}], "frame": {{"kind": "diagram", "labels": ["ЕДА И БЕЗОПАСНОСТЬ", "ДРУЗЬЯ", "МЕЧТЫ"], "hero": false, "picture": "a large hand-drawn pyramid with three tiers in the middle of the frame: a bowl and a little house in the wide bottom tier, two stick figures holding hands in the middle tier, a small star in the top tier; to the right of each tier an empty patch of plain background with a short arrow pointing at that tier; plain light background"}}}}
 «And you just lie there, scrolling, while the evening is gone» (a film with a main character):
-{{"n": 3, "focus": "a person lost in a phone while the evening passes", "subject": "a person with a phone", "core": "a person lying with a phone is visible", "claims": [{{"id": "c1", "text": "the person stares at the phone", "tier": "must"}}, {{"id": "c2", "text": "a dark window shows night has fallen", "tier": "should"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "picture": "medium shot: the main character lies on a sofa on their back, holding one phone with a blank glowing screen above their face with both hands, eyes wide and tired; a window behind shows a dark night sky with a crescent moon; a cold cup of tea on the floor; the character sits in the left half of the frame"}}}}
+{{"n": 3, "focus": "a person lost in a phone while the evening passes", "subject": "a person with a phone", "core": "a person lying with a phone is visible", "claims": [{{"id": "c1", "text": "the person stares at the phone", "tier": "must"}}, {{"id": "c2", "text": "a dark window shows night has fallen", "tier": "should"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "details": ["the phone with a blank glowing screen", "the crescent moon in the window", "the cold cup of tea"], "accent": null, "picture": "medium shot: the main character lies on a sofa on their back, holding one phone with a blank glowing screen above their face with both hands, eyes wide and tired; a window behind shows a dark night sky with a crescent moon; a cold cup of tea on the floor; the character sits in the left half of the frame"}}}}
 
 A Russian line with a camera rush and a handwritten key thought («Поставь таймер на десять минут — и всё, больше ничего не нужно», a film with a main character):
-{{"n": 4, "focus": "a ten-minute timer as the whole task", "subject": "a kitchen timer", "core": "a kitchen timer is visible", "claims": [{{"id": "c1", "text": "the timer is being set", "tier": "must"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "zoom": {{"object": "the kitchen timer", "word": "таймер"}}, "key": "десять минут", "key_near": "the kitchen timer", "picture": "medium shot: the main character turns the dial of one big round kitchen timer with a blank face on an empty table, ears up, calm focused look; the timer is large in the right half of the frame with plain light background around it; calm empty background above the timer"}}}}
+{{"n": 4, "focus": "a ten-minute timer as the whole task", "subject": "a kitchen timer", "core": "a kitchen timer is visible", "claims": [{{"id": "c1", "text": "the timer is being set", "tier": "must"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "zoom": {{"object": "the kitchen timer", "word": "таймер"}}, "details": ["the dial of the kitchen timer"], "key": "десять минут", "key_near": "the kitchen timer", "accent": null, "picture": "medium shot: the main character turns the dial of one big round kitchen timer with a blank face on an empty table, ears up, calm focused look; the timer is large in the right half of the frame with plain light background around it; calm empty background above the timer"}}}}
 
 Answer with one JSON object per narration line, one per line, and nothing else — no explanations, no reasoning, no markdown.
 
@@ -475,6 +475,82 @@ def _drop_hero(f, replacement="a person"):
     f["picture"] = re.sub(r"\b[Tt]he main character\b", replacement, f["picture"])
 
 
+NUMERAL_RE = re.compile(
+    r"\b(\d+(?:[.,]\d+)?|одн[аоу]|один|одного|одной|две|два|двух|три|трёх|трех|четыре|пять|пяти|шесть|семь|восемь|девять|"
+    r"десять|десяти|одиннадцать|двенадцать|пятнадцать|двадцать|тридцать|сорок|пятьдесят|сто|двести|триста|пятьсот|"
+    r"тысяч[аиу]?|миллион[аов]?|полчаса|полтора|полторы)\b", re.I)
+
+
+UNIT_RE = re.compile(r"^(секунд|минут|час|дн[яей]|день|недел|месяц|лет|год|раз|процент|рубл|доллар|евро|кг|килограмм|грамм|"
+                     r"тонн|метр|км|километр|сантиметр|литр|шаг|слов|страниц|пис[её]м|человек|людей|штук|попыт|лет)")
+
+
+def auto_accent(text):
+    """Число с единицей из фразы («пять минут», «две минуты», «3 дня») — акцент по правилу кода.
+    Планировщик (DeepSeek v4 flash) поле accent не пишет вообще (живой эп.01: ни одного на пять фраз,
+    при трёх числах в тексте), а число на экране — самый дешёвый якорь внимания. Берётся первое число
+    фразы и следующее за ним слово, если это не предлог/союз; «полчаса» — само по себе."""
+    toks = re.findall(r"[А-Яа-яЁё0-9.,]+", text or "")
+    for i, t in enumerate(toks):
+        if not NUMERAL_RE.fullmatch(t.strip(".,")):
+            continue
+        if t.lower().startswith("полчаса"):
+            return t.strip(".,").lower()
+        if i + 1 < len(toks):
+            nxt = toks[i + 1].strip(".,").lower()
+            if nxt and UNIT_RE.match(nxt):          # число + мера («пять минут»), а не «одно письмо»
+                return f"{t.strip(',.').lower()} {nxt}"
+    return None
+
+
+def accent_pass(frames):
+    """Акцент по правилу там, где модель его не дала и нет главной мысли (акцент и мысль — не вместе)."""
+    import words
+    n = 0
+    for f in frames:
+        if f.get("accent") or f.get("key_thought") or f.get("kind") == "caption":
+            continue
+        a = auto_accent(f.get("text", ""))
+        if a and words.in_text(a, f.get("text", "")):
+            f["accent"] = a
+            f["accent_by"] = "rule"
+            n += 1
+    return n
+
+
+DRAWN_FIELDS = ("kind", "labels", "hero", "hero_live", "hero_action", "hero_state", "picture", "zoom", "details",
+                "key_thought", "key_near", "accent", "spec", "preflight")
+
+
+def keep_drawn_frames(frames, video_dir):
+    """Кадр, который уже нарисован и принят судьёй (frames_report: status ok, тот же ключ фразы),
+    НЕ перепланируется: его поля берутся из прежнего плана. Живой прогон 08.10: правка задания
+    планировщика переписала все пять кадров эпизода — кадр куклы снова стал «кот нарисован», описания
+    разошлись с оплаченными картинками, и следующий генератор перерисовал бы четыре кадра (150 000).
+    Новое поле, которого в старом плане не было (например accent), остаётся от нового ответа.
+    Сколько кадров сохранено."""
+    mp = os.path.join(video_dir, "media_plan")
+    try:
+        old = {f.get("key"): f for f in json.load(open(os.path.join(mp, PLAN_NAME), encoding="utf-8"))["frames"]}
+        rep = json.load(open(os.path.join(mp, "frames_report.json"), encoding="utf-8"))
+    except (OSError, ValueError, KeyError):
+        return 0
+    drawn = {r.get("key") for r in rep.get("frames", []) if r.get("status") == "ok" and r.get("path")}
+    n = 0
+    for f in frames:
+        o = old.get(f.get("key"))
+        if not o or f.get("key") not in drawn:
+            continue
+        for k in DRAWN_FIELDS:
+            if k in o:
+                f[k] = o[k]
+            elif k in f and k not in ("accent", "details"):
+                f.pop(k)
+        f["kept_drawn"] = True
+        n += 1
+    return n
+
+
 def live_hero_pass(frames):
     """Кадры героя с простым действием (hero_action из LIVE_ACTIONS) отдаются живой кукле: картинка
     генерируется БЕЗ героя (hero False — без референса), а в описании он пока остаётся, чтобы
@@ -577,6 +653,7 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
         stats["fallback" if entry.get("fallback") else "planned"] += 1
         frames.append({"index": i, "section": b["section"], "text": b["text"], "key": unit_key(b["text"]),
                        "spec": entry["spec"], **entry["frame"], "fallback": bool(entry.get("fallback"))})
+    stats["kept_drawn"] = keep_drawn_frames(frames, video_dir)
     if not has_hero:
         for f in frames:
             if f.get("hero"):
@@ -584,9 +661,13 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
     # у маскота снятый с кадра герой — тот же зверь словами (без референса), а не «человек с ушами»
     _run, _share = hero_limits()
     repl = (hero or {}).get("text") if (hero or {}).get("text") and _share >= MASCOT_SHARE else "a person"
-    stats["hero_trimmed"] = limit_hero(frames, replacement=repl)
+    free = [f for f in frames if not f.get("kept_drawn")]
+    stats["hero_trimmed"] = limit_hero(free, replacement=repl) if free else 0
+    n_acc = accent_pass(frames)
+    if n_acc:
+        stats["accent_by_rule"] = n_acc
     if has_hero and live_hero_enabled():          # без флага — stats байт в байт прежние
-        stats["hero_live"] = live_hero_pass(frames)
+        stats["hero_live"] = live_hero_pass(free) + sum(1 for f in frames if f.get("kept_drawn") and f.get("hero_live"))
     plan = {"version": PLAN_VERSION, "model": model, "has_hero": has_hero, "frames": frames,
             "stats": stats, "errors": errs}
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
@@ -615,7 +696,8 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
     os.replace(path + ".tmp", path)
     if verbose:
         kinds = {k: sum(1 for f in frames if f["kind"] == k) for k in KINDS}
-        print(f"План: {len(frames)} кадров {kinds}, с героем {sum(f['hero'] for f in frames)} "
+        print(f"План: {len(frames)} кадров {kinds}, нарисованных сохранено {stats.get('kept_drawn', 0)}, "
+              f"с героем {sum(f['hero'] for f in frames)} "
               f"(снято правилом кода: {stats['hero_trimmed']}"
               + (f", живой куклой: {stats['hero_live']}, возвращено рисунку: {stats.get('hero_live_reverted', 0)}"
                  if stats.get("hero_live") or stats.get("hero_live_reverted") else "") + "), "

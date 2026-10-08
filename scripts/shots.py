@@ -24,6 +24,8 @@ import words as wordsmod
 PUNCH_GAP_SEC = 15.0
 PUNCH_HOLD_SEC = 1.2
 MAX_VIEW_SEC = 3.5      # брендбук: план 1,2-3,5 с (критик 05.10: планы по 7-8 с, зритель уходит)
+HOOK_FIRST_VIEW_SEC = 2.0   # планы в зоне хука — не дольше (брендбук: хук 1,2–2,0 с; живой эп.01: 8,25 с до первой склейки)
+HOOK_ZONE_SEC = 3.0         # зона хука — первые секунды ролика (та же, что у приёмки montage_qc)
 MIN_VIEW_SEC = 1.5
 HEAD_SLIVER = 0.05      # крупный план детали может захватить краешек головы героя (кончик уха) — до этой доли её рамки (0.15 захватил полглаза, живой прогон 05.10)
 DETAIL_FILL = 0.3       # деталь в крупном плане — не меньше этой доли кадра по своей тесной стороне (мельче — это уже пятнышко)
@@ -67,7 +69,7 @@ def subject_box(busy, objects):
 
 
 def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punch=-1e9, T0=0.0,
-         zoom_in=True, parts=None, accent=None, accent_dur=0.0):
+         zoom_in=True, parts=None, accent=None, accent_dur=0.0, first_of_film=False):
     """Сегменты камеры и события кадра.
 
     D — длительность кадра; busy — карта занятости холста; words — слова речи
@@ -76,7 +78,8 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     мысли, key_dur — сколько он пишется; last_punch — глобальное время прошлого
     наезда; T0 — глобальное время начала кадра; parts — рамка (в координатах
     холста) части схемы, которую называет каждая подпись: на её слове камера
-    чуть наклоняется к ней.
+    чуть наклоняется к ней; first_of_film — первый кадр ролика: его первый план
+    не дольше HOOK_FIRST_VIEW_SEC.
 
     Возвращает dict: segments [{t0, t1, kind: drift|punch, win, win_to, zoom_in}],
     label_times [t], key_time (или None), punch_at (глобальное время или None), notes."""
@@ -258,9 +261,13 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         return True
 
     details = []
-    for o in objects or []:
-        if o.get("role") != "detail" or not o.get("box"):
-            continue
+    # голова героя — тоже крупный план (самая естественная склейка в анимации с персонажем), последним
+    # в очереди: сначала детали, названные планом или судьёй. Живой эп.01: у всех пяти кадров не было ни
+    # среднего плана (предмет с героем не влезают в 1,55× общего), ни деталей — камера плыла 8–10 с без склеек
+    det_objs = [o for o in objects or [] if o.get("role") == "detail" and o.get("box")]
+    det_objs += [dict(o, role="detail", name=o.get("name") or "the head of the hero", _head=True)
+                 for o in objects or [] if o.get("role") == "hero_head" and o.get("box")]
+    for o in det_objs:
         db = tuple(o["box"])
         # обычный крупный план — от 1.5x общего; крупная деталь, которая в него не влезает, — менее
         # крупно, но только со сдвигом центра (иначе склейка читается как «скачок», camera.is_jump)
@@ -331,13 +338,17 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         return wide
 
     def split(t0, t1, win):
-        """Равные куски не длиннее MAX_VIEW_SEC, склейки на началах слов."""
+        """Равные куски не длиннее MAX_VIEW_SEC, склейки на началах слов (без таймингов — в расчётной
+        точке, это делает snap). В зоне хука первого кадра ролика план не дольше HOOK_FIRST_VIEW_SEC."""
         out, cur = [], win
         if not views:
             return out
-        while t1 - t0 > MAX_VIEW_SEC:
-            lo = max(t0 + MIN_VIEW_SEC, labels_done)
-            hi = min(t0 + MAX_VIEW_SEC, t1 - MIN_VIEW_SEC)
+        def vmax_at(t):                                   # явный признак от сборщика, не T0==0: у вызовов без T0 он тоже 0
+            return HOOK_FIRST_VIEW_SEC if (first_of_film and t < HOOK_ZONE_SEC) else MAX_VIEW_SEC
+        while t1 - t0 > vmax_at(t0):
+            vmax = vmax_at(t0)
+            lo = max(t0 + min(MIN_VIEW_SEC, vmax - 0.3), labels_done)
+            hi = min(t0 + vmax, t1 - MIN_VIEW_SEC)
             if lo > t1 - MIN_VIEW_SEC:
                 break
             # склейка — на паузе речи (самый длинный промежуток между словами в допустимом окне):
@@ -345,12 +356,19 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             # ровный ритм усыпляет»; критик 05.10: все планы по 2-3 с)
             # пауза ищется около «ровной» точки: кусков столько, сколько нужно, а не больше —
             # лишний кусок повторял бы план, когда новых у картинки уже нет (живой прогон 05.10)
-            k = int(np.ceil((t1 - t0)/MAX_VIEW_SEC))
+            k = int(np.ceil((t1 - t0)/vmax))
             ideal = t0 + (t1 - t0)/k
             s_ = phrase_cut(max(lo, ideal - 0.8), min(hi, ideal + 0.8)) if hi >= lo else None
             if s_ is None:
-                k = int(np.ceil((t1 - t0)/MAX_VIEW_SEC))
                 s_ = snap(max(t0 + (t1 - t0)/k, lo), lo, t1 - MIN_VIEW_SEC)
+            if s_ is None:
+                # окно целиком занято письмом (мысль, акцент): склейка — сразу после того, как дописано и
+                # постояло, если до конца кадра ещё есть план (живой эп.01: кадр с мыслью шёл 6,8 с одним планом)
+                for _a, b_ in sorted(busy_win):
+                    if t0 < b_ <= t1 - MIN_VIEW_SEC and free(b_ + 0.05, b_ + 0.15):
+                        s_ = snap(b_ + 0.1, b_ + 0.05, t1 - MIN_VIEW_SEC)
+                        if s_ is not None:
+                            break
             if s_ is None:
                 break
             nxt = next_view(cur)

@@ -184,3 +184,27 @@ class TestVerdict:
         report, code = vt.verify(str(vd), video_path=material["hard"])
         assert report["verdict"] == "low_coverage"
         assert code == 2
+
+
+def test_change_share_curve_sees_cuts_that_the_median_misses(tmp_path):
+    """Рисунок на бумаге: склейка меняет 30% пикселей, 70% — та же бумага. Медиана разницы — ноль
+    (склейка невидима), доля изменившихся пикселей — ≥ 21% (живой эп.01)."""
+    import subprocess
+    import numpy as np
+    from PIL import Image
+    d = tmp_path / "f"; d.mkdir()
+    W, H = 320, 180
+    for i in range(48):
+        im = np.full((H, W, 3), 245, np.uint8)
+        if i >= 24:
+            im[:, :int(W * 0.3)] = 40                       # «склейка»: треть кадра стала тёмной
+        else:
+            im[:, :int(W * 0.3)] = 200
+        Image.fromarray(im).save(d / f"{i:03d}.png")
+    out = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-framerate", "24", "-i", str(d / "%03d.png"), "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", str(out)], check=True)
+    fps, med = vt.frame_diff_curve(str(out)); _f, share = vt.frame_change_share_curve(str(out))
+    assert max(med) < vt.DIFF_MIN_ABS                      # медиана не видит склейку
+    cuts, _t = vt.cuts_from_curve(fps, share, min_abs=vt.SHARE_MIN_ABS)
+    assert len(cuts) == 1 and abs(cuts[0] - 1.0) < 0.1 and max(share) > 25
