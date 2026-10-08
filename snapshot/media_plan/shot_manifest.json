@@ -920,7 +920,7 @@
   "motion_mode_estimate": "slow_pull",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval combat manuscript",
+  "query": "hand pointing document",
   "text_preview": "Теперь самое неудобное."
  },
  {
@@ -932,7 +932,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "knight resting stone",
+  "query": "medieval knights fighting",
   "text_preview": "Ни одна из этих работ не измеряла бой. Никто не рубился и не"
  },
  {
@@ -944,7 +944,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval helmet visor close up",
+  "query": "knight resting stone",
   "text_preview": "Длительность боя в доспехе не измеряли вообще."
  },
  {
@@ -956,7 +956,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval helmet visor close up",
+  "query": "human heart close up",
   "text_preview": "Из лидской работы следует только одно: при одной и той же ск"
  },
  {
@@ -968,7 +968,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval helmet visor close up",
+  "query": "clock hands stopped",
   "text_preview": "Значит, устаёшь быстрее, чем без доспеха. Но на сколько мину"
  },
  {
@@ -980,7 +980,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "incomplete armour museum",
+  "query": "gothic helmet visor",
   "text_preview": "Про жару. Я искал замеры температуры тела в латах и не нашёл"
  },
  {
@@ -992,7 +992,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "incomplete armour museum",
+  "query": "bulletproof vest close up",
   "text_preview": "Есть работы про современные бронежилеты, а про латы нет."
  },
  {
@@ -1004,7 +1004,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "incomplete armour museum",
+  "query": "steam rising heat",
   "text_preview": "Так что фраза «рыцари перегревались» пока остаётся предполож"
  },
  {
@@ -1016,7 +1016,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval combat manuscript",
+  "query": "plate armour museum",
   "text_preview": "И ещё одна дыра. Целых доспехов времён Азенкура не сохранило"
  },
  {
@@ -1028,7 +1028,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "medieval combat manuscript",
+  "query": "hand writing calculations",
   "text_preview": "Учёные берут копии конца века и переносят цифры на сто лет н"
  },
  {
@@ -1040,7 +1040,7 @@
   "motion_mode_estimate": "horizontal_pan",
   "is_subcut": false,
   "has_stat": false,
-  "query": "knight resting stone",
+  "query": "typing on phone",
   "text_preview": "Если знаешь замер, который я пропустил, напиши в комментария"
  },
  {
