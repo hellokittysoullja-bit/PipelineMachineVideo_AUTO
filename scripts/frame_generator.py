@@ -334,10 +334,42 @@ class Generator:
     def _judge(self, frame, cands):
         """{путь: {"text_ok", "grid", "answers", "vector"}} для кандидатов."""
         import shot_judge
-        info = {p: {"text_ok": None, "grid": None, "answers": None, "vector": None} for p in cands}
+        info = {p: {"text_ok": None, "grid": None, "answers": None, "vector": None, "defects": None}
+                for p in cands}
         spec = self._judge_spec(frame)
         if not self.jgw:
             return info
+        # Полный кадр рядом с референсом героя: цел ли рисунок и тот ли персонаж
+        # (сетка 400 px этого не видит, проверка по утверждениям об этом не спрашивает).
+        # «reject» — брак варианта; «minor» — годен, но проигрывает чистому. Вызов на этом
+        # шлюзе — минуты (замер 09.10: медиана ~2 мин, до 9), поэтому он стартует первым и
+        # идёт в фоне, пока читаются буквы, сравнивается сетка и проверяются утверждения.
+        def defects_of(p):
+            return shot_judge.drawing_defects(
+                self.jgw, self.jmodel, path=p, hero_ref=self.look.hero if frame.get("hero") else None,
+                hero_text=self.look.hero_text, hero_marks=getattr(self.look, "hero_marks", None),
+                cache_dir=self.judge_cache)
+        pool = ThreadPoolExecutor(max(1, min(4, len(cands))))
+        defect_futures = {p: pool.submit(defects_of, p) for p in cands}
+        try:
+            self._judge_content(frame, spec, cands, info)
+        finally:
+            for p, fut in defect_futures.items():
+                try:
+                    ans, dinfo = fut.result()
+                except Exception as e:  # noqa: BLE001 — проверки не было, кадр не теряется
+                    ans, dinfo = None, {"refused": f"{type(e).__name__}: {e}"[:200]}
+                with self.lock:
+                    self.spent += dinfo.get("cost") or 0
+                info[p]["defects"] = ans
+                info[p]["defect_verdict"] = shot_judge.defect_verdict(ans, expect_hero=bool(frame.get("hero")))
+            pool.shutdown(wait=False)
+        return info
+
+    def _judge_content(self, frame, spec, cands, info):
+        """Буквы на сыром кадре, сетка (при 2+ вариантах) и проверка по утверждениям —
+        пишет в info на месте."""
+        import shot_judge
         for p in cands:
             try:
                 ok, det = text_score([], self._read(p))     # на сыром кадре букв быть не должно
@@ -389,6 +421,8 @@ class Generator:
         None — брак (буквы на кадре, судья ответил «не то»)."""
         if i["text_ok"] is False or (i["grid"] is not None and i["grid"] <= 0):
             return None
+        if i.get("defect_verdict") == "reject":
+            return None
         if i["vector"] is not None:
             return "ok"
         return "unchecked" if i["answers"] is None else None
@@ -404,6 +438,7 @@ class Generator:
         def ranked():
             good = [p for p, i in pool.items() if self._verdict(i)]
             return sorted(good, key=lambda p: (self._verdict(pool[p]) == "ok", pool[p]["vector"] or (),
+                                               pool[p].get("defect_verdict") != "minor",
                                                pool[p]["grid"] or 0), reverse=True)
 
         def done(p, info, fallback=None):
@@ -446,7 +481,8 @@ class Generator:
             # все раунды — кадры с проваленным must-утверждением: лучший из них идёт на экран со статусом
             # weak (на экране лучше близкий кадр, чем пустота/сосед), провал записан поимённо
             weak = [p for p, i in pool.items() if i.get("must_failed") and not i.get("figure_present")
-                    and i["text_ok"] is not False and not (i["grid"] is not None and i["grid"] <= 0)]
+                    and i["text_ok"] is not False and not (i["grid"] is not None and i["grid"] <= 0)
+                    and i.get("defect_verdict") != "reject"]
             weak.sort(key=lambda p: (pool[p]["weak_vector"] or (), pool[p]["grid"] or 0), reverse=True)
             for p in weak[:1]:
                 for fallback in (False, True):        # нет места под подпись — полоса, как у годного кадра
@@ -609,6 +645,12 @@ def main():
         elif r["status"] == "weak":
             print(f"  кадр {r['index'] + 1}: weak — судья ответил «нет» на {r.get('must_failed')}; идёт на экран, "
                   f"посмотреть глазами (второй раунд — только при IMAGE_ROUNDS>=2)")
+        for name, c in (r.get("candidates") or {}).items():
+            d = c.get("defects") or {}
+            v = c.get("defect_verdict")
+            if v in ("reject", "minor") and (d.get("defects") or d.get("off_model")):
+                tag = "брак рисунка" if v == "reject" else "замечания к рисунку"
+                print(f"  кадр {r['index'] + 1} {name}: {tag}: {'; '.join(d.get('defects') + d.get('off_model'))[:200]}")
     return 2 if any(r["status"] in ("rejected", "failed") for r in recs) else 0
 
 

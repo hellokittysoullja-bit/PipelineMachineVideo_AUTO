@@ -1,0 +1,11 @@
+You inspect ONE hand-drawn illustration for a children's explainer video before it goes on screen.
+The FIRST image is the reference of the main character: {hero}. {marks} It has a small flame or glowing ember on the tip of its tail.
+The SECOND image is the illustration to inspect.
+Look at the second image carefully at full size and answer:
+1. defects: drawing errors a viewer would notice — extra or missing limbs, paws, ears, eyes or tails; two heads or two of the main character; body parts merged into objects or into each other; an object fused with another; a stray stroke, stick, blob or mark that belongs to nothing; a half-drawn object; a floating detached part. Describe each briefly with where it is. Empty list if none. Do not list style choices, simplifications or texture hatching.
+2. severe: true if at least one defect would make a viewer think the picture is broken (wrong number of body parts, merged bodies, duplicated character, detached floating part); false if all listed defects are small marks.
+3. hero_present: is the main character (the black cat) in the picture at all? true/false
+4. off_model: if the main character is present, every way it differs from the reference that a viewer would notice: different species or colour, both ears up or both down (the reference has exactly one folded ear), wrong eye colour, no flame or ember on the tail, a different character drawn instead. Empty list if it matches.
+5. wrong_character: true if the figure in the picture is a different character than the reference (another animal, a ghost, a human, a different colour), false otherwise or if no character.
+6. text: true if any letters, digits or words are drawn anywhere in the picture, false otherwise.
+Reply with JSON only: {{"defects": [...], "severe": true/false, "hero_present": true/false, "off_model": [...], "wrong_character": true/false, "text": true/false, "why": "<short>"}}

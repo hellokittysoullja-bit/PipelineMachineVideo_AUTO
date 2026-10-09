@@ -43,7 +43,13 @@ class FakeJudge:
             return json.dumps({"claims": {"core": self.claim}, "medium": "artwork", "why": "x"}), {}, 1
         if "Rank them" in text:
             return json.dumps({"order": [1, 2, 3]}), {}, 1
+        if text.startswith("You inspect ONE hand-drawn"):
+            return json.dumps(self.defects_answer(content)), {}, 1
         raise AssertionError(text[:80])
+
+    def defects_answer(self, content):
+        return {"defects": [], "severe": False, "hero_present": True, "off_model": [],
+                "wrong_character": False, "text": False, "why": "clean"}
 
 
 def make_look(tmp_path, hero=True, color=(200, 200, 200)):
@@ -377,3 +383,71 @@ def test_weak_never_passes_a_figure_on_a_doll_frame(tmp_path):
         {"id": "nofig", "text": "no figure anywhere", "tier": "must"}], "queries": []})
     rec = gen(tmp_path, ClaimsJudge(["NONE"] * 4, {"core": "yes", "c1": "no", "nofig": "no"}), variants=1, rounds=1).frame(frame)
     assert rec["status"] == "rejected"
+
+
+class DefectJudge(FakeJudge):
+    """Судья дефектов: ответ по номеру варианта (порядок вопросов о дефектах)."""
+
+    def __init__(self, reads, answers, grid=3):
+        super().__init__(reads, grid=grid)
+        self.answers = list(answers)
+
+    def defects_answer(self, content):
+        base = {"defects": [], "severe": False, "hero_present": True, "off_model": [],
+                "wrong_character": False, "text": False, "why": "x"}
+        return dict(base, **self.answers.pop(0))
+
+
+def test_defect_verdict_policy():
+    import shot_judge as sj
+    clean = {"defects": [], "severe": False, "hero_present": True, "off_model": [], "wrong_character": False,
+             "text": False, "why": ""}
+    assert sj.defect_verdict(None) is None
+    assert sj.defect_verdict(clean) == "clean"
+    assert sj.defect_verdict(dict(clean, defects=["stray stick under the arm"])) == "minor"
+    assert sj.defect_verdict(dict(clean, defects=["three front paws"], severe=True)) == "minor"   # severe — не отказ
+    assert sj.defect_verdict(dict(clean, wrong_character=True)) == "reject"
+    # герой чуть не на модели — замечание только на кадре, где герой по плану есть
+    assert sj.defect_verdict(dict(clean, off_model=["both ears up"]), expect_hero=True) == "minor"
+    assert sj.defect_verdict(dict(clean, off_model=["both ears up"]), expect_hero=False) == "clean"
+    assert sj.parse_defects_answer("no json here") is None
+    assert sj.parse_defects_answer('{"severe": "yes"}') is None
+
+
+def test_wrong_character_rejects_variant_and_minor_ranks_below_clean(tmp_path):
+    # вариант 0 — чужой персонаж (reject), 1 — с палочкой (minor), 2 — чистый: на экран идёт чистый
+    judge = DefectJudge(["NONE"] * 3, [{"wrong_character": True, "off_model": ["a grey ghost"]},
+                                        {"defects": ["a stray stick near the paw"]}, {}])
+    rec = gen(tmp_path, judge, variants=3, rounds=1).frame(dict(FRAME, hero=True))
+    assert rec["status"] == "ok"
+    c = rec["candidates"]
+    verdicts = {k: v["defect_verdict"] for k, v in c.items()}
+    assert sorted(verdicts.values()) == ["clean", "minor", "reject"]
+    assert verdicts[rec["chosen"]] == "clean"
+
+
+def test_wrong_character_alone_rejects_the_only_variant(tmp_path):
+    rec = gen(tmp_path, DefectJudge(["NONE"], [{"wrong_character": True, "off_model": ["a grey ghost instead of the cat"]}]),
+              variants=1, rounds=1).frame(dict(FRAME, hero=True))
+    assert rec["status"] == "rejected"
+
+
+def test_defect_check_failure_is_not_a_rejection(tmp_path):
+    class Broken(FakeJudge):
+        def defects_answer(self, content):
+            raise RuntimeError("gateway down")
+    rec = gen(tmp_path, Broken(["NONE"]), variants=1, rounds=1).frame(FRAME)
+    assert rec["status"] == "ok" and rec["candidates"][rec["chosen"]]["defect_verdict"] is None
+
+
+def test_defect_question_sends_hero_reference_only_for_hero_frames(tmp_path):
+    seen = []
+
+    class Spy(FakeJudge):
+        def defects_answer(self, content):
+            seen.append(sum(1 for c in content if c.get("type") == "image_url"))
+            return super().defects_answer(content)
+    g_ = gen(tmp_path, Spy(["NONE", "NONE"]), variants=1, rounds=1)
+    g_.frame(dict(FRAME, hero=True))
+    g_.frame(dict(FRAME, index=FRAME["index"] + 1))
+    assert seen == [2, 1]

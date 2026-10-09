@@ -448,6 +448,128 @@ def world_of_image(gateway, model, *, setting, path, kind="photo", cache_dir=Non
     return answers, {"cost": price, "call": True}
 
 
+
+# ДЕФЕКТЫ РИСУНКА — ПО ПОЛНОМУ КАДРУ, С РЕФЕРЕНСОМ ГЕРОЯ (09.10). Сетка
+# (400x300 на плитку) сравнивает варианты и не видит мелкого: записанный
+# промах — «лишняя чёрная палочка под рукой — судья не поймал». Проверка по
+# утверждениям отвечает «есть ли предмет», а не «цел ли рисунок». Арт-разбор
+# эп.01 (docs/quality/compare_0810/report_art.md) назвал главный класс брака
+# рисованного канала: герой не на модели (оба уха торчком в К2, вместо кота —
+# серое существо в двух вариантах), и этот класс не ловил ни один вопрос.
+# Здесь модель смотрит кадр в полный размер (DEFECTS_MAX_SIDE) рядом с
+# референсом героя и отвечает про ошибки рисунка и про соответствие герою.
+# Решение принимает код (defect_verdict): «reject» только за то, что зритель
+# прочтёт как сломанную картинку или чужого персонажа; остальное — «minor»,
+# пишется в отчёт и опускает вариант в ранжировании, кадр не теряется.
+DEFECTS_VERSION = 1
+DEFECTS_MAX_SIDE = 1264
+DEFECTS_REF_SIDE = 640
+DEFECTS_PROMPT = """You inspect ONE hand-drawn illustration for a children's explainer video before it goes on screen.
+{reference}Look at the illustration carefully at full size and answer:
+1. defects: drawing errors a viewer would notice — extra or missing limbs, paws, ears, eyes or tails; two heads or two of the main character; body parts merged into objects or into each other; an object fused with another; a stray stroke, stick, blob or mark that belongs to nothing; a half-drawn object; a floating detached part. Describe each briefly with where it is. Empty list if none. Do not list style choices, simplifications or texture hatching.
+2. severe: true if at least one defect would make a viewer think the picture is broken (wrong number of body parts, merged bodies, duplicated character, detached floating part); false if all listed defects are small marks.
+3. hero_present: is the main character in the picture at all? true/false{hero_q}
+6. text: true if any letters, digits or words are drawn anywhere in the picture, false otherwise.
+Reply with JSON only: {{"defects": [...], "severe": true/false, "hero_present": true/false, "off_model": [...], "wrong_character": true/false, "text": true/false, "why": "<short>"}}"""
+DEFECTS_REFERENCE = ("The FIRST image is the reference of the main character: {hero}. {marks}\n"
+                     "The SECOND image is the illustration to inspect.\n")
+DEFECTS_NO_REFERENCE = "The image is the illustration to inspect; the main character is {hero}.\n"
+DEFECTS_HERO_Q = """
+4. off_model: if the main character is present, every way it differs from the reference that a viewer would notice: different species or colour, wrong ears (see the reference), wrong eye colour, missing tail flame or ember, a different character drawn instead. Empty list if it matches.
+5. wrong_character: true if the figure in the picture is a different character than the reference (another animal, a ghost, a human, a different colour), false otherwise or if no character."""
+DEFECTS_HERO_Q_NO_REF = """
+4. off_model: empty list.
+5. wrong_character: false."""
+
+
+def defects_question(hero_text=None, hero_marks=None, with_reference=True):
+    hero = hero_text or "the main character"
+    marks = " ".join(str(hero_marks or "").split())
+    if with_reference:
+        ref = DEFECTS_REFERENCE.format(hero=hero, marks=marks).replace(". \n", ".\n")
+        return DEFECTS_PROMPT.format(reference=ref, hero_q=DEFECTS_HERO_Q)
+    return DEFECTS_PROMPT.format(reference=DEFECTS_NO_REFERENCE.format(hero=hero), hero_q=DEFECTS_HERO_Q_NO_REF)
+
+
+def parse_defects_answer(text):
+    """Словарь ответа с проверенными типами, иначе None."""
+    import re
+    m = re.search(r"\{.*\}", text or "", re.S)
+    try:
+        j = json.loads(m.group(0)) if m else None
+    except ValueError:
+        return None
+    if not isinstance(j, dict) or not isinstance(j.get("severe"), bool):
+        return None
+
+    def strs(v):
+        return [" ".join(str(x).split())[:200] for x in v if str(x).strip()] if isinstance(v, list) else []
+    return {"defects": strs(j.get("defects")), "severe": j["severe"],
+            "hero_present": bool(j.get("hero_present")), "off_model": strs(j.get("off_model")),
+            "wrong_character": bool(j.get("wrong_character")), "text": bool(j.get("text")),
+            "why": " ".join(str(j.get("why") or "").split())[:200]}
+
+
+def drawing_defects(gateway, model, *, path, hero_ref=None, hero_text=None, hero_marks=None,
+                    cache_dir=None, max_side=DEFECTS_MAX_SIDE, reasoning=False):
+    """(ответ parse_defects_answer | None, info). None — проверки не было
+    (нет шлюза, сбой, неразобранный ответ): это не брак. Кэш — по кадру,
+    референсу и тексту вопроса."""
+    if gateway is None or not path or not os.path.exists(path):
+        return None, {}
+    ref_ok = bool(hero_ref) and os.path.exists(hero_ref)
+    text = defects_question(hero_text, hero_marks, with_reference=ref_ok)
+    h = hashlib.sha256()
+    for part in ("defects", str(DEFECTS_VERSION), model, text, str(max_side), repr(reasoning),
+                 _file_digest(path), _file_digest(hero_ref) if ref_ok else ""):
+        h.update(part.encode("utf-8"))
+        h.update(b"\0")
+    cp = os.path.join(cache_dir, "defects_" + h.hexdigest() + ".json") if cache_dir else None
+    if cp and os.path.exists(cp):
+        try:
+            return json.load(open(cp, encoding="utf-8"))["answers"], {"cache_hit": True}
+        except Exception:
+            pass
+    try:
+        content = [{"type": "text", "text": text}]
+        if ref_ok:
+            content.append(_image_content(hero_ref, DEFECTS_REF_SIDE))
+        content.append(_image_content(path, max_side))
+    except Exception:
+        return None, {}
+    try:
+        answer, _u, price = gateway.chat(model, content, 600, 3000, reasoning=reasoning)
+    except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
+        return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
+    answers = parse_defects_answer(answer)
+    if answers is None:
+        return None, {"refused": "неразобранный ответ: " + (answer or "")[-200:], "cost": price,
+                      "call": True}
+    if cp:
+        _cache_write(cp, {"answers": answers, "model": model}, readable=True)
+    return answers, {"cost": price, "call": True}
+
+
+def defect_verdict(answers, expect_hero=False):
+    """"reject" — вместо героя нарисован чужой персонаж; "minor" — есть
+    замечания (палочка, слитые предметы, герой не на модели): кадр годен,
+    но проигрывает чистому и печатается для глаз; "clean" — замечаний нет;
+    None — проверки не было. expect_hero: кадр по плану с героем — его
+    отсутствие не брак здесь (это решает проверка по утверждениям).
+    «severe» модели — НЕ отказ: живой замер 09.10 (эп.01, вариант «кот держит
+    мозг с камнем») дал severe=true за «цепь сливается с лапой» — спорное
+    место, не сломанный рисунок; при одном варианте на кадр ложный отказ
+    стоил бы кадра целиком. Отказ только за то, что зритель читает
+    однозначно и что модель называла верно: другой персонаж вместо героя."""
+    if answers is None:
+        return None
+    if answers["wrong_character"]:
+        return "reject"
+    if answers["severe"] or answers["defects"] or (expect_hero and answers["off_model"]):
+        return "minor"
+    return "clean"
+
+
 def shows_motion(kind, frames=None):
     """Может ли кадр показать движение: ролик минимум из двух кадров."""
     return kind == "video" and (frames is None or frames >= 2)

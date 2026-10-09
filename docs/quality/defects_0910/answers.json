@@ -1,0 +1,122 @@
+{
+ "12168422f3c5ae7f6180.png": {
+  "i": 0,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"Black cat matches the reference (folded ear on viewer's left, upright ear on viewer's right, green eyes, flame on tail tip); the tail and paws are naturally occluded by the envelope and paw, no extra/missing parts, merges or stray marks, and no lettering anywhere.\"}",
+  "price": 2966,
+  "sec": 252.3
+ },
+ "15f79a9eb5361d223e48.png": {
+  "i": 1,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": false, \"off_model\": [], \"wrong_character\": true, \"text\": false, \"why\": \"The figure peeking behind the spotted envelope is a white, earless blob-like creature with dot eyes and a flame tail, not the black cat; no drawing errors, no text.\"}",
+  "price": 2744,
+  "sec": 334.3
+ },
+ "287a6002d06bb87fb669.png": {
+  "i": 2,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"Black cat matches reference (left ear folded, right ear up, flame on tail tip); four limbs, one head, one tail; chair, table, letter and envelope are coherent; paw prints and ember sparks are intentional storytelling marks, no text.\"}",
+  "price": 1921,
+  "sec": 191.2
+ },
+ "3010428310bffd205547.png": {
+  "i": 3,
+  "answer": "```json\n{\n  \"defects\": [],\n  \"severe\": false,\n  \"hero_present\": false,\n  \"off_model\": [],\n  \"wrong_character\": false,\n  \"text\": false,\n  \"why\": \"The image shows an envelope with black ink splatters or wax seals, and the main character (black cat) is not present.\"\n}\n```",
+  "price": 610,
+  "sec": 13.2
+ },
+ "77c5a003c369f74d81da.png": {
+  "i": 7,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [\"both ears stand up (reference has the viewer-left ear folded down)\", \"no flame or ember on the tail tip\"], \"wrong_character\": false, \"text\": true, \"why\": \"The black cat appears once with correct colour and four legs, but both ears are upright and the tail lacks the flame; table, envelope and paw prints are clean, and the caption 'STARTING LINE' is drawn text.\"}",
+  "price": 1474,
+  "sec": 116.2
+ },
+ "398ed33376683d17fc7e.png": {
+  "i": 4,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"Black cat matches the reference: viewer-left ear folded, viewer-right ear up, green eyes, flame on tail tip; the envelope mud splatters and smoke wisp read as intentional content, and all limbs/ears/eyes/tail count correctly.\"}",
+  "price": 1701,
+  "sec": 254.0
+ },
+ "7e2f74259f50d6dfb7aa.png": {
+  "i": 9,
+  "answer": "```json\n{\n  \"defects\": [],\n  \"severe\": false,\n  \"hero_present\": false,\n  \"off_model\": [],\n  \"wrong_character\": false,\n  \"text\": false,\n  \"why\": \"The image shows an envelope with a paw print; the main character (black cat) is not present.\"\n}\n```",
+  "price": 696,
+  "sec": 19.5
+ },
+ "7f0567fe48aeeda8e19c.png": {
+  "i": 10,
+  "answer": "```json\n{\n  \"defects\": [],\n  \"severe\": false,\n  \"hero_present\": true,\n  \"off_model\": [\n    \"both ears are folded down (reference has viewer's left folded and viewer's right standing up)\"\n  ],\n  \"wrong_character\": false,\n  \"text\": true,\n  \"why\": \"The main character is present but has both ears folded down instead of one up and one down. The words 'shame' and 'anxiety' are written on the envelope.\"\n}\n```",
+  "price": 672,
+  "sec": 17.9
+ },
+ "7db3936e65b0850c726d.png": {
+  "i": 8,
+  "answer": "{\"defects\": [\"The two front paws are drawn clasped together in a human-style handshake grip over the envelope, as if the cat is shaking its own paw\", \"A row of four round finger blobs at the lower left of the clasp rests on the envelope and does not clearly attach to either arm, reading as an extra paw\"], \"severe\": true, \"hero_present\": true, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"Close-up of the black cat with green eyes, pink nose and orange whisker marks matches the reference, but the paws form an impossible self-handshake clasp with an extra detached finger row on the envelope; ears and tail fall outside the frame.\"}",
+  "price": 2541,
+  "sec": 218.7
+ },
+ "3f5e50c8e41bd5f644c5.png": {
+  "i": 5,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [\"both ears are folded down (reference has the left ear folded and the right ear standing up)\"], \"wrong_character\": false, \"text\": true, \"why\": \"The black cat with green eyes and a tail ember is present and intact; only ear pose deviates from the reference (both ears folded), and the wall calendar contains drawn X marks; no broken anatomy or stray marks.\"}",
+  "price": 1428,
+  "sec": 385.1
+ },
+ "81089157656348d51bf2.png": {
+  "i": 11,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"Black cat matches the reference (viewer-left ear folded, right ear up, green eyes, flame on tail tip); four legs accounted for (one raised to the envelope), and the open envelope with letter is fully drawn with no stray or merged parts.\"}",
+  "price": 1543,
+  "sec": 113.6
+ },
+ "8413b7a608f1e23fe25f.png": {
+  "i": 13,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [\"folded ear is on the viewer's right while the standing ear is on the viewer's left in a front view (mirrored; the reference has the folded ear on the viewer's left when facing forward)\"], \"wrong_character\": false, \"text\": false, \"why\": \"The black cat with a flame-tipped tail is present and correctly drawn (one folded ear, green eyes, flame on tail), but in this front-facing pose the folded ear appears on the wrong side; no structural drawing errors, no text.\"}",
+  "price": 1369,
+  "sec": 120.2
+ },
+ "9c72d0a4aa0dc24a1bb5.png": {
+  "i": 15,
+  "answer": "```json\n{\n  \"defects\": [],\n  \"severe\": false,\n  \"hero_present\": true,\n  \"off_model\": [\n    \"both ears are standing up (reference has the viewer's left ear folded down)\"\n  ],\n  \"wrong_character\": false,\n  \"text\": false,\n  \"why\": \"The main character is present with the correct flame tail, but both ears are up instead of having the left ear folded down as required by the reference.\"\n}\n```",
+  "price": 623,
+  "sec": 14.9
+ },
+ "83887877d52043a5d1bd.png": {
+  "i": 12,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": false, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"The scene shows only a stained envelope lying on the floor in a room corner; the black cat with the folded ear and flame tail is absent, and the envelope, wall lines and stain marks are drawn consistently with no stray or broken parts and no lettering.\"}",
+  "price": 1612,
+  "sec": 192.0
+ },
+ "a662837709b131104e38.png": {
+  "i": 17,
+  "answer": "```json\n{\n  \"defects\": [],\n  \"severe\": false,\n  \"hero_present\": false,\n  \"off_model\": [],\n  \"wrong_character\": false,\n  \"text\": false,\n  \"why\": \"The image shows a white envelope with black ink splatters; the main character (black cat) is not present.\"\n}\n```",
+  "price": 659,
+  "sec": 15.8
+ },
+ "6694ea60debc02c72ab1.png": {
+  "i": 6,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"Black cat matches the reference: left ear folded, right ear upright, green eyes, flame on tail tip; envelope, paw-print trail and smoke wisp are intentional scene elements, no drawing errors or extra/missing parts.\"}",
+  "price": 1906,
+  "sec": 555.8
+ },
+ "e8544fe18aee3b96a88d.png": {
+  "i": 19,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": false, \"off_model\": [], \"wrong_character\": true, \"text\": false, \"why\": \"The illustration shows an anthropomorphic pink brain straining under a large envelope; the black cat hero with folded ear and flame tail is absent, and the brain figure is a different character. The drawing itself is coherent: two arms, two legs, one face, no stray or fused parts.\"}",
+  "price": 591,
+  "sec": 18.5
+ },
+ "c52b3486eca23586570a.png": {
+  "i": 18,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": true, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"The black cat matches the reference: viewer-left ear folded, viewer-right ear up, green eyes, glowing ember on the tail tip (with a smoke wisp); the envelope, paw-print circle, horizon line and shadow are intentional scene elements, no missing/extra parts or text.\"}",
+  "price": 1124,
+  "sec": 70.9
+ },
+ "a4a635821db535c8fcf8.png": {
+  "i": 16,
+  "answer": "{\"defects\": [], \"severe\": false, \"hero_present\": false, \"off_model\": [], \"wrong_character\": true, \"text\": false, \"why\": \"The only figure is a pale grey lizard-like creature with a flame-tipped tail peeking in at the left edge, not the black cat; the spotted envelope and floor line are drawn consistently with no stray or broken parts.\"}",
+  "price": 1362,
+  "sec": 115.3
+ },
+ "8b76d8bc60b8ca24ba5a.png": {
+  "i": 14,
+  "answer": "{\"defects\": [\"Small spark/star mark at the upper left floats detached from the end of the brain's fuse line (gap between fuse tip and the star)\", \"The smoke wisp above the tail flame breaks into a detached short stroke at its top, separated by a gap from the rest of the wisp\"], \"severe\": false, \"hero_present\": true, \"off_model\": [], \"wrong_character\": false, \"text\": false, \"why\": \"Black cat matches the reference (left ear folded, right ear up, flame on tail, eyes squeezed shut in effort only); the only issues are two tiny detached marks (floating spark star and broken smoke wisp), so nothing structural is broken.\"}",
+  "price": 2727,
+  "sec": 360.2
+ }
+}
