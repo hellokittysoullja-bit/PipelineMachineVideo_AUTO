@@ -15817,13 +15817,20 @@ def foreground_background_layers(canvas, depth):
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                        section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
                        stat_delay=0.0, levels=None, wb=None, grain_scale=1.0, captions=None,
-                       look_filter=None, domain=None):
+                       look_filter=None, domain=None, soft=False):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
     возвращает False — вызывающий код откатывается на обычный kenburns()."""
     # Та же подложка, что и в kenburns(): параллакс строит свой холст через
     # fill_crop_canvas(), то есть тем же increase+crop.
+    # soft: мягкий параллакс для одного кадра (первый кадр ролика, решение владельца
+    # 13.10): меньше запас холста (лица не срезаются), ниже скорость зума и разнос
+    # слоёв. Остальные кадры — прежние константы, байт-в-байт.
+    _margin = 1.10 if soft else PARALLAX_MARGIN
+    _zfloor = 1.02 if soft else ZOOM_FLOOR
+    _zdmin = 0.05 if soft else ZOOM_DELTA_MIN
+    _pxbase = 30.0 if soft else PARALLAX_PX_BASE
     photo = focus_crop(photo)
     photo = aspect_fit_backdrop(photo)
     global PARALLAX_BROKEN
@@ -15834,7 +15841,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     stderr_path = None
     try:
         frames = max(1, round(dur * FPS))
-        cw, ch = round(WIDTH * PARALLAX_MARGIN), round(HEIGHT * PARALLAX_MARGIN)
+        cw, ch = round(WIDTH * _margin), round(HEIGHT * _margin)
         canvas = fill_crop_canvas(photo, cw, ch, anchor=resolve_crop_anchor(photo))
         try:
             depth = estimate_depth(canvas)
@@ -15856,9 +15863,9 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         pan_jit = ((h >> 15) % 1000) / 1000.0
         # C6: см. kenburns() — та же логика скорости зума в такт энергии голоса.
         energy_zoom_mult = 1.0 + max(-0.5, min(0.5, energy_bias)) * 0.2
-        delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
+        delta = max(_zdmin, min(ZOOM_DELTA_MAX,
                     ZOOM_RATE_BASE * dur * (0.75 + rate_jit * 0.5) * energy_zoom_mult))
-        max_zoom = ZOOM_FLOOR + delta
+        max_zoom = _zfloor + delta
         pan_amt_frac = PAN_SAFETY * (PAN_JITTER_MIN + pan_jit * (PAN_JITTER_MAX - PAN_JITTER_MIN))
         # Content-aware сила эффекта: раньше parallax_px был один и тот же
         # для любой картинки — эффект работает эффектно только там, где в
@@ -15880,7 +15887,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         # калибровкой в строгом смысле).
         depth_contrast = float(depth.std())
         strength_gain = max(0.6, min(1.4, depth_contrast / 0.22))
-        parallax_px = PARALLAX_PX_BASE * (0.7 + rate_jit * 0.6) * strength_gain
+        parallax_px = _pxbase * (0.7 + rate_jit * 0.6) * strength_gain
         # Отдельная, СИЛЬНО сглаженная карта глубины именно для геометрии
         # варпа (см. PARALLAX_WARP_SIGMA_FRAC/PARALLAX_MAX_STRETCH выше).
         # Исходная `depth` остаётся резкой и дальше идёт в apply_depth_of_field()
@@ -16011,7 +16018,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         for frame_i in range(frames):
             t = frame_i / frames
             eased = 3 * t ** 2 - 2 * t ** 3   # smoothstep — тот же профиль, что у zoompan-версии
-            zoom = (ZOOM_FLOOR + delta * eased) if zoom_in else (max_zoom - delta * eased)
+            zoom = (_zfloor + delta * eased) if zoom_in else (max_zoom - delta * eased)
             pan_px = pan_amt_frac * eased * min(cw, ch) * 0.5 * ((1 - 1 / zoom))
 
             map_x0 = cx + (ox_grid - WIDTH / 2) / zoom + dx * pan_px
@@ -20583,7 +20590,8 @@ def main():
                                             pan_dir=pan_dir, stat=stat, section=b["section"],
                                             stat_variant=stat_variant, brightness_bias=brightness_bias,
                                             energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                                            captions=captions, look_filter=look_filter, domain=domain)
+                                            captions=captions, look_filter=look_filter, domain=domain,
+                                            soft=(i == 0 and os.environ.get('SOFT_PARALLAX_SLOT0') == '1'))
                 if not ok:
                     CAMERA_LANGUAGE_STATS["modes"][motion_mode] = \
                         CAMERA_LANGUAGE_STATS["modes"].get(motion_mode, 0) + 1
