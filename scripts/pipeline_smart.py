@@ -17351,11 +17351,27 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     for ci, (a, b) in enumerate(bounds):
         cblocks = blocks[a:b] if blocks else None
         cout = os.path.join(temp_dir, f"_xchunk_{ci:03d}.mp4")
-        ok, cdur = xfade_chain(clips[a:b], durs[a:b], sections[a:b], cout,
-                                xfade_dur=xfade_dur, blocks=cblocks, plan=plan[a:b - 1])
-        if not ok:
-            print(f"  чанк {ci} ({b - a} клипов) xfade не собрался — вся склейка откатывается на concat")
-            return False, 0.0
+        # Возобновление: готовый чанк засчитывается по маркеру .done (пишется
+        # ТОЛЬКО после успешного xfade_chain), а не по наличию файла — недописанный
+        # при обрыве процесса чанк без маркера пересобирается. Контент чанка
+        # детерминирован (те же клипы, тот же план), поэтому пропуск не меняет результат.
+        marker = cout + ".done"
+        cdur = None
+        if os.path.exists(marker) and os.path.exists(cout):
+            try:
+                cdur = float(json.load(open(marker, encoding="utf-8"))["dur"])
+                print(f"  чанк {ci} ({b - a} клипов) взят из готового результата прошлого запуска")
+            except Exception:  # noqa: BLE001 — битый маркер: пересобрать чанк
+                cdur = None
+        if cdur is None:
+            ok, cdur = xfade_chain(clips[a:b], durs[a:b], sections[a:b], cout,
+                                    xfade_dur=xfade_dur, blocks=cblocks, plan=plan[a:b - 1])
+            if not ok:
+                print(f"  чанк {ci} ({b - a} клипов) xfade не собрался — вся склейка откатывается на concat")
+                return False, 0.0
+            with open(marker + ".tmp", "w", encoding="utf-8") as mf:
+                json.dump({"dur": cdur}, mf)
+            os.replace(marker + ".tmp", marker)
         chunk_files.append(cout)
         chunk_total += cdur
     concat_list = os.path.join(temp_dir, "_xchunk_concat.txt")
