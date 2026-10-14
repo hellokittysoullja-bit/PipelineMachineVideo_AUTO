@@ -17312,6 +17312,17 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
     if len(bounds) <= 1:
         return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks, plan=plan)
+    # Возобновление на уровне всей склейки: чанки после concat удаляются (см.
+    # ниже), и без этого маркера обрыв ПОСЛЕ склейки (мукс звука, нехватка места)
+    # пересобирал бы все чанки заново. Маркер пишется только после успешного concat.
+    out_marker = out + ".done"
+    if os.path.exists(out) and os.path.exists(out_marker):
+        try:
+            done_total = float(json.load(open(out_marker, encoding="utf-8"))["dur"])
+            print(f"  склейка взята из готового результата прошлого запуска ({os.path.basename(out)})")
+            return True, done_total
+        except Exception:  # noqa: BLE001 — битый маркер: собрать заново
+            pass
     chunk_files, chunk_total = [], 0.0
     for ci, (a, b) in enumerate(bounds):
         cblocks = blocks[a:b] if blocks else None
@@ -17347,6 +17358,9 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     if r.returncode != 0:
         print("  склейка чанков xfade не удалась, откат на concat:", r.stderr[-300:])
         return False, 0.0
+    with open(out_marker + ".tmp", "w", encoding="utf-8") as mf:
+        json.dump({"dur": chunk_total}, mf)
+    os.replace(out_marker + ".tmp", out_marker)
     # Чанки скопированы в out побайтово (-c copy) — дальше они не нужны
     # никому: xfade_chain() выше не кэширует их между прогонами (cout
     # каждый раз перезаписывается заново), а весь код ниже по пайплайну
