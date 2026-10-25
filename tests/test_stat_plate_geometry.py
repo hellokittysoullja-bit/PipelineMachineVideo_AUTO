@@ -1,85 +1,64 @@
-"""Геометрия экранных плашек сверена с отраслевыми нормами титров.
+"""Геометрия экранного текста сверена с нормами титров (1920x1080).
 
-РЕАЛЬНАЯ находка (13.09, сверка всех четырёх вариантов разом). Варианты
-0, 1, 2 и машинка нормам соответствовали. Вариант 3 (подпись в нижнем
-правом углу) нарушал ТРИ нормы одновременно:
+История: 13.09 сверка нашла, что угловой вариант плашки нарушал три нормы
+сразу (кегль, поле, низ в зоне кнопок плеера). С оформления 25.10 вариантов
+плашки нет — одна плашка text_style.stat_block, и та же проверка теперь
+меряет НАРИСОВАННЫЕ пиксели блоков (альфа-канал PNG), а не числа в коде:
+кегль у антиквы и гротеска разный, а «низ текста» решают выносные элементы.
 
-    кегль            46-52  при норме от 54 (5% высоты кадра)
-    правое поле      70     при норме от 96 (5% ширины кадра)
-    низ текста       940    при пределе 880
-    низ подчёркивания 992   при пределе 880
-
-Последнее — самое важное: нижние ~18% кадра это зона, где YouTube рисует
-полосу перемотки и кнопки. На телефоне они всплывают от каждого касания и
-перекрывают подпись. Причём в истории правок рядом стоит жалоба
-пользователя "слишком мелкая и незаметная", по которой кегль уже поднимали
-с 34-38 до 46-52 — то есть проблему знали, но до нормы не довели, а
-позицию и отступ не проверял никто.
-
-Вариант 3 выбирается для ПЛОТНЫХ кадров (busy > 0.55) — на канале про
-макросъёмку клинков и доспехов он выпадает часто, это не редкий случай.
+Нормы: кегль не меньше 5% высоты кадра (54 px), поле от края не меньше 5%
+ширины (96 px), ничего ниже 880 — там YouTube рисует полосу перемотки и
+кнопки, на телефоне они всплывают от каждого касания.
 """
 import os
-import re
 import sys
-import tempfile
 
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
-sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 
-import pipeline_smart as ps  # noqa: E402
+pytest.importorskip("PIL")
+import text_style as ts  # noqa: E402
 
-MIN_FONT = 54          # 5% высоты кадра — читаемо на телефоне
-PLAYER_ZONE_TOP = 880  # ниже этого YouTube рисует полосу перемотки и кнопки
-
-
-def _overlay(variant, text="25 КГ"):
-    """Граф оверлея для конкретного варианта плашки."""
-    return ps.add_overlays("null", 8.0, stat=text, stat_variant=variant, stat_delay=1.0)
+PLAYER_ZONE_TOP = 880
+SIDE_MARGIN = 96
 
 
-@pytest.mark.parametrize("variant", [0, 1, 2, 3, 4])
-def test_font_size_is_readable_on_a_phone(variant):
-    vf = _overlay(variant)
-    sizes = [int(m) for m in re.findall(r"fontsize=(\d+)", vf)]
-    assert sizes, vf[:200]
-    assert min(sizes) >= MIN_FONT, f"вариант {variant}: кегль {min(sizes)} < {MIN_FONT}"
+def _bbox(img, alpha_min=40):
+    a = img.split()[3].point(lambda v: 255 if v >= alpha_min else 0)
+    return a.getbbox()
 
 
-@pytest.mark.parametrize("variant", [0, 1, 2, 3, 4])
-def test_nothing_is_drawn_in_the_player_controls_zone(variant):
-    """Текст и декор не имеют права заезжать туда, где всплывают кнопки
-    плеера — иначе на телефоне подпись просто перекрывается."""
-    vf = _overlay(variant)
-    bottoms = [ps.HEIGHT - int(m) for m in re.findall(r"y=(?:')?(?:h|ih)-(\d+)", vf)]
-    for y in bottoms:
-        assert y <= PLAYER_ZONE_TOP, (
-            f"вариант {variant}: элемент на y={y}, ниже предела {PLAYER_ZONE_TOP}")
+@pytest.mark.parametrize("text", ["25 кг", "20–25 кг", "+66%", "×2 на шаг", "1415"])
+def test_stat_plate_stays_out_of_the_player_zone_and_margin(text):
+    box = _bbox(ts.stat_block(text))
+    assert box is not None, "плашка ничего не нарисовала"
+    left, top, right, bottom = box
+    assert bottom <= PLAYER_ZONE_TOP, (text, bottom)
+    assert left >= SIDE_MARGIN - 2, (text, left)
+    assert right <= 1920 - SIDE_MARGIN, (text, right)
 
 
-def test_corner_variant_respects_the_side_margin():
-    """Правое поле — не меньше 5% ширины кадра."""
-    vf = _overlay(3)
-    margins = [int(m) for m in re.findall(r"x=w-text_w-(\d+)", vf)]
-    assert margins, vf[:200]
-    assert min(margins) >= ps.STAT_SAFE_MARGIN_PX >= 96
+def test_stat_plate_is_large_enough_to_read_on_a_phone():
+    img = ts.stat_block("25")
+    a = img.split()[3].point(lambda v: 255 if v >= 128 else 0)
+    # высота цифр без линии: обрезаем область ниже золотой линии
+    w, h = img.size
+    digits = a.crop((0, 0, w, h)).getbbox()
+    assert digits[3] - digits[1] >= 54
 
 
-def test_margin_constants_match_the_standard():
-    assert ps.STAT_SAFE_MARGIN_PX >= round(ps.WIDTH * 0.05)
-    assert ps.HEIGHT - ps.STAT_CORNER_RULE_BOTTOM_PX <= PLAYER_ZONE_TOP
-    assert ps.HEIGHT - ps.STAT_CORNER_TEXT_BOTTOM_PX <= PLAYER_ZONE_TOP
+def test_source_caption_stays_in_frame_and_out_of_the_player_zone():
+    box = _bbox(ts.source_block("1395–1415", "Институт искусств Чикаго"))
+    assert box[3] <= PLAYER_ZONE_TOP and box[2] <= 1920 - 60
 
 
-def test_text_sits_above_its_own_underline():
-    """Подчёркивание — декор ПОД подписью, не поверх неё."""
-    assert ps.STAT_CORNER_TEXT_BOTTOM_PX > ps.STAT_CORNER_RULE_BOTTOM_PX
+def test_chapter_marker_sits_in_the_top_left_safe_corner():
+    box = _bbox(ts.marker_block(2, "Лаборатория в Лидсе"))
+    assert box[0] >= SIDE_MARGIN - 2 and box[1] >= 50 and box[3] <= 140
 
 
-@pytest.mark.parametrize("variant", [0, 1, 2, 3, 4])
-def test_plate_still_renders_its_text(variant):
-    """Правка геометрии не должна потерять сам текст плашки."""
-    assert "drawtext" in _overlay(variant)
+def test_long_stat_shrinks_instead_of_running_off_frame():
+    box = _bbox(ts.stat_block("около тридцати пяти килограммов"))
+    assert box[2] <= 1920 - SIDE_MARGIN

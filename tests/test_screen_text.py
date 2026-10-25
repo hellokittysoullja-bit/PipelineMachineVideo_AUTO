@@ -200,9 +200,14 @@ def test_title_card_field_wins(tmp_path):
     assert cc.film_title(p, FONT) == "Рыцари почти не убивали друг друга"
 
 
-def test_title_without_brackets_and_cut_at_dash(tmp_path):
-    p = _script(tmp_path, "TITLE: Рыцари почти не убивали друг друга — и день, когда это "
-                          "закончилось (рабочее, финальное выбирает владелец)")
+def test_title_without_brackets(tmp_path):
+    p = _script(tmp_path, "TITLE: Рыцари почти не убивали друг друга (рабочее, финальное выбирает владелец)")
+    assert cc.film_title(p, FONT) == "Рыцари почти не убивали друг друга"
+
+
+def test_title_cut_at_dash_when_full_does_not_fit(tmp_path):
+    long_tail = "и день, когда это закончилось навсегда для всех рыцарей Европы и их оруженосцев"
+    p = _script(tmp_path, "TITLE: Рыцари почти не убивали друг друга — " + long_tail)
     assert cc.film_title(p, FONT) == "Рыцари почти не убивали друг друга"
 
 
@@ -222,17 +227,11 @@ def test_title_card_line_does_not_change_sound_plan_title(tmp_path):
     assert sound_director.episode_title(str(tmp_path)) == "Полное название"
 
 
-def test_title_layout_two_lines_like_demo():
-    size, lines, ok = cc.title_layout("РЫЦАРИ ПОЧТИ НЕ УБИВАЛИ ДРУГ ДРУГА", FONT, cc.TITLE)
-    assert ok and size == 72 and lines == ["РЫЦАРИ ПОЧТИ НЕ УБИВАЛИ", "ДРУГ ДРУГА"]
-
-
-def test_title_style_has_no_red_line_chapter_style_has():
-    t = cc.card_filter("Рыцари почти не убивали друг друга", 2.4, 8.0, FONT, FONT, lambda s: s,
-                       style=cc.TITLE)
-    c = cc.card_filter("Поле", 1.8, 8.0, FONT, FONT, lambda s: s, style=cc.CHAPTER)
-    assert "drawbox" not in t and "drawbox" in c
-    assert "fontsize=72" in t and "boxblur=30:2" in t
+def test_title_block_two_balanced_lines():
+    import text_style
+    lines = text_style.balance_two("Рыцари почти не убивали друг друга", text_style.SERIF, 160, 1640)
+    assert lines and len(lines) == 2
+    assert text_style.title_block("Рыцари почти не убивали друг друга", None, size=96) is not None
 
 
 def test_title_replaces_chapter_one_card(monkeypatch, tmp_path):

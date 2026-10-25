@@ -140,8 +140,9 @@ def test_preflight_on_fixture_shows_elements_and_no_errors():
     out = rep.render()
     assert "БАМБЕРГ 1626" in out and "ГЛАРУС 1782" in out
     assert "— Юниус" in out
-    assert "ВЕДЬМ ЖГЛИ НЕ ПРИ" in out          # название после хука
-    assert "BLOCK 2" not in out or "ПОСЛЕДНЯЯ ВЕДЬМА" in out
+    # название и главы печатаются как на экране — строчными (оформление 25.10)
+    assert "ведьм жгли не при" in out.lower()  # название после хука
+    assert "BLOCK 2" not in out or "последняя ведьма" in out.lower()
     assert rep.errors == []
 
 

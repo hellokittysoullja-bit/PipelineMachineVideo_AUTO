@@ -160,71 +160,17 @@ def film_title(script_path, font_path):
     text = " ".join(text.split())
     if not text:
         return None
+    import text_style
     for cand in (text, text.split(" — ")[0].strip()):
-        if cand and title_layout(cand.upper(), font_path, TITLE)[2]:
+        if cand and text_style.title_block(cand, None, size=96) is not None:
             return cand
     return None
 
 
 # --- вёрстка -------------------------------------------------------------------
 
-def _text_width(text, size, font_path):
-    try:
-        from PIL import ImageFont
-        return float(ImageFont.truetype(font_path, size).getlength(text))
-    except Exception:
-        # без PIL/шрифта — грубая оценка по ширине широкого гротеска
-        return 0.92 * size * len(text)
-
-
-def _split_two(words, size, font_path, how):
-    if len(words) < 2:
-        return None
-    if how == "greedy":
-        for k in range(len(words) - 1, 0, -1):
-            a = " ".join(words[:k])
-            if _text_width(a, size, font_path) <= CARD_TITLE_MAX_WIDTH:
-                return [a, " ".join(words[k:])]
-        return None
-    best = None
-    for k in range(1, len(words)):
-        a, b = " ".join(words[:k]), " ".join(words[k:])
-        w = max(_text_width(a, size, font_path), _text_width(b, size, font_path))
-        if best is None or w < best[0]:
-            best = (w, [a, b])
-    return best[1]
-
-
-def title_layout(title, font_path, style=None):
-    """(кегль, [строки], влезло) — каждая строка не шире CARD_TITLE_MAX_WIDTH.
-
-    Глава: одна строка с уменьшением до 56, потом две строки (баланс) с
-    уменьшением до min_font. Название ролика: две строки (первая — сколько
-    влезает, как в демо), без уменьшения ниже min_font."""
-    st = style or CHAPTER
-    text = " ".join(str(title or "").split())
-    if not text:
-        return st["font_size"], [], False
-    size0 = st["font_size"]
-
-    def fits(lines, size):
-        return max(_text_width(x, size, font_path) for x in lines) <= CARD_TITLE_MAX_WIDTH
-
-    if st["split"] == "balanced":
-        for size in range(size0, 55, -2):
-            if fits([text], size):
-                return size, [text], True
-    words = text.split(" ")
-    if st["split"] == "greedy" and fits([text], size0) and len(words) < 3:
-        return size0, [text], True
-    size = size0
-    while True:
-        lines = _split_two(words, size, font_path, st["split"]) or [text]
-        if fits(lines, size):
-            return size, lines, True
-        if size - 2 < st["min_font"]:
-            return size, lines, False
-        size -= 2
+# Вёрстка названия — text_style.title_lines/title_block (оформление 25.10);
+# прежняя вёрстка Benzin капсом (title_layout) удалена вместе с ним.
 
 
 def card_timing(lead, dur, style=None):
@@ -259,47 +205,60 @@ def _alpha_expr(t_in, fade_in, t_out, fade_out):
 
 
 def card_filter(title, lead, dur, font_path, fontfile, escape, accent="0xC8102E", fps=24,
-                upper=True, style=None):
+                upper=True, style=None, tmp_dir=None, path_value=None, chapter_n=None,
+                marker_title=None):
     """filter_complex: [0:v] (готовый клип) -> [vout] (клип с заставкой).
 
     Заставка — тот же клип (его Ken Burns даёт дрейф «живым»), размытый и
-    притемнённый, плюс дрейф кадрирования; сверху — название (и у главы —
-    красная линия над ним). Растворяется альфой поверх чёткого клипа, после
-    конца растворения клип идёт как есть. fontfile — уже подготовленное
-    значение опции (см. pipeline_smart.ffmpeg_filter_path), font_path — тот же
-    шрифт как файл (для замера ширины строки), escape — экранирование текста."""
+    притемнённый; поверх — блок text_style.title_block (у главы — строка
+    «ГЛАВА N» и золотая линия, у названия ролика — только название),
+    проявляется из размытия в резкость. Растворяется альфой поверх чёткого
+    клипа. После растворения — маркер главы в углу (text_style.marker_block)
+    на несколько секунд, если клип достаточно длинный.
+
+    font_path/fontfile/escape/accent/upper остались в подписи ради
+    совместимости вызовов; текст рисует text_style (оформление 25.10)."""
+    import tempfile
+    import text_style
     st = style or CHAPTER
     tm = card_timing(lead, dur, st)
-    text = (title or "").upper() if upper else (title or "")
-    size, lines, _ok = title_layout(text, font_path, st)
-    n = max(1, len(lines))
-    spacing = int(round(size * st["spacing"]))
-    if n == 1:
-        top = st["top_single"]
-    else:
-        block_h = n * size + (n - 1) * spacing
-        top = -int(round(block_h / 2.0))
+    tmp_dir = tmp_dir or os.path.join(tempfile.gettempdir(), "text_style")
+    pv = path_value or (lambda x: x)
+    kicker = text_style.chapter_kicker(chapter_n) if (st is CHAPTER and chapter_n) else None
+    size = 104 if st is CHAPTER else 96
+    img = text_style.title_block(title or "", kicker, size=size)
     card_len = tm["card_end"]
     crop_x = f"(iw-1920)/2+t*{st['drift_x']}" if st["drift_x"] else "(iw-1920)/2"
     crop_y = f"(ih-1080)/2+t*{st['drift_y']}" if st["drift_y"] else "(ih-1080)/2"
     chain = (f"[c]trim=duration={card_len + 1.0 / fps:.3f},setpts=PTS-STARTPTS,"
              f"scale={st['scale_w']}:-2,crop=1920:1080:'{crop_x}':'{crop_y}',"
              f"{st['blur']},{st['eq']},{st['vignette']},format=yuva420p")
-    if st["accent_line"]:
-        chain += (f",drawbox=x=(iw-{CARD_LINE_W})/2:y=ih/2+{top - CARD_LINE_GAP}:"
-                  f"w={CARD_LINE_W}:h={CARD_LINE_H}:color={accent}@1:t=fill:"
-                  f"enable='between(t,{tm['line_on']:.3f},{tm['line_off']:.3f})'")
-    for k, line in enumerate(lines):
-        y = top + k * (size + spacing)
-        t_in = tm["title_in"] + k * st["line_stagger"]
-        alpha = _alpha_expr(t_in, st["text_fade_in"], tm["title_out"], st["text_fade_out"])
-        rise = (f"(1-min(max(t-{t_in:.3f}\\,0)/{st['rise_sec']:.3f}\\,1))*{st['rise_px']}")
-        chain += (f",drawtext=fontfile='{fontfile}':text='{escape(line)}':"
-                  f"fontsize={size}:fontcolor=white:{CARD_SHADOW}:"
-                  f"x=(w-text_w)/2:y='h/2+{y}+{rise}':alpha='{alpha}'")
     chain += f",fade=t=out:st={tm['dissolve']:.3f}:d={st['dissolve']:.3f}:alpha=1[card]"
-    return ("[0:v]split=2[base][c];" + chain +
-            ";[base][card]overlay=format=yuv420p10:eof_action=pass:shortest=0[vout]")
+    parts = ["[0:v]split=2[base][c]", chain,
+             "[base][card]overlay=format=yuv420p10:eof_action=pass:shortest=0[vc]"]
+    label = "vc"
+    if img is not None:
+        key = f"title|{title}|{kicker}|{size}|{text_style.signature_source()}"
+        sharp, blur = text_style.save_pair(img, tmp_dir, key)
+        parts.append(text_style.pulled_overlay(label, "vt", pv(sharp), pv(blur), tm["title_in"],
+                                               tm["title_out"], dur, fps, "tt", drift_x=6))
+        label = "vt"
+    if chapter_n and marker_title:
+        m_in = tm["card_end"] + 0.15
+        m_out = min(float(dur) - text_style.OUT_SEC - 0.1, m_in + MARKER_HOLD_SEC)
+        if m_out - m_in >= MARKER_MIN_SEC:
+            mimg = text_style.marker_block(chapter_n, marker_title)
+            key = f"marker|{chapter_n}|{marker_title}|{text_style.signature_source()}"
+            ms, mb = text_style.save_pair(mimg, tmp_dir, key)
+            parts.append(text_style.pulled_overlay(label, "vm", pv(ms), pv(mb), m_in, m_out, dur, fps,
+                                                   "mk", rise=0))
+            label = "vm"
+    parts.append(f"[{label}]null[vout]")
+    return ";".join(parts)
+
+
+MARKER_HOLD_SEC = 4.5   # маркер главы в углу после заставки
+MARKER_MIN_SEC = 1.6
 
 
 def card_signature_source():
@@ -338,5 +297,5 @@ def hook_title_section(section_names):
 
 
 def default_font():
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "assets", "fonts", "Benzin-ExtraBold.ttf")
+    import text_style
+    return text_style.SERIF

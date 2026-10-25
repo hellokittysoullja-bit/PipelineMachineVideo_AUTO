@@ -42,8 +42,10 @@ def test_assets_exist_and_are_wired():
     assert "build_episode_audio_layers(" in inspect.getsource(ps.main)
 
 
-def test_flag_default_on():
-    assert ff.FLAGS["REVEAL_SFX"].default == "1"
+def test_flag_default_off_by_owner_decision():
+    """25.10: акцент кульминации снят решением владельца — звук оформления
+    сведён к его трём звукам и удару заставки. Включается REVEAL_SFX=1."""
+    assert ff.FLAGS["REVEAL_SFX"].default == "0"
 
 
 def test_no_climax_means_untouched_mix():

@@ -53,8 +53,9 @@ def test_plate_cues_and_typewriter_share_one_scale_conversion():
     typewriter_reveal_timing().
     """
     src = inspect.getsource(ps.plan_stat_sound_cues)
-    assert src.count("stat_reveal_moment(") == 2, "обе ветки обязаны звать общий пересчёт"
     assert "sub_starts[i] + stat_reveal_moment(" in src
+    # с оформления 25.10 машинки у плашки нет — один звук, одна формула
+    assert src.count("stat_reveal_moment(") == 1
 
 
 def test_scale_conversion_clamps_into_the_block():
@@ -64,12 +65,15 @@ def test_scale_conversion_clamps_into_the_block():
     assert ps.stat_reveal_moment(2.0, 0.5, 1.2) == 0.0
 
 
-def test_typewriter_plates_do_not_also_get_a_tick():
-    """У варианта с машинкой свой звук — тик поверх был бы сдвоенным."""
-    src = inspect.getsource(ps.plan_stat_sound_cues)
-    i_type = src.index("if stat_variant % 5 == 4:")
-    i_else = src.index("else:", i_type)
-    assert i_else > i_type, "тик обязан быть ИНАЧЕ-веткой к машинке, а не независимой"
+def test_every_plate_gets_one_whoosh_peaking_on_the_reveal():
+    """Оформление 25.10: у каждой плашки один звук (whoosh_fast), пик
+    которого совпадает с появлением цифры; машинки у плашки нет."""
+    blocks = [{"section": "BLOCK 1", "text": "x", "words": 10, "stat": f"{i} КГ",
+               "stat_word_pos": 5} for i in range(6)]
+    clicks, plates = ps.plan_stat_sound_cues(blocks, [6.0] * 6, [i * 10.0 for i in range(6)], [6.0] * 6)
+    assert clicks == [] and len(plates) == 6
+    reveal = ps.stat_reveal_moment(3.0, 6.0, ps.STAT_REVEAL_TAIL_TICK_SEC)
+    assert plates[0]["time"] == pytest.approx(reveal - ps.PLATE_SFX_PEAK_SEC)
 
 
 def test_chapter_sound_needs_the_phrase_locked_timeline():

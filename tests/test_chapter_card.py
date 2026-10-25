@@ -65,20 +65,13 @@ def test_flag_and_on_screen_text_both_required(monkeypatch):
 FONT = os.path.join(REPO_ROOT, "assets", "fonts", "Benzin-ExtraBold.ttf")
 
 
-def test_short_title_one_line_at_64():
-    size, lines, ok = cc.title_layout("ЧЕЛОВЕК, КОТОРЫЙ ВЁЛ СЧЁТ", FONT)
-    assert (size, lines, ok) == (64, ["ЧЕЛОВЕК, КОТОРЫЙ ВЁЛ СЧЁТ"], True)
-
-
-@pytest.mark.parametrize("title", ["ТКАЧИ, КОТОРЫМ НЕ НУЖНЫ БЫЛИ ДЕНЬГИ",
-                                   "ГОРЦЫ, КОТОРЫЕ ЗАПРЕТИЛИ ПЛЕННЫХ",
-                                   "ОЧЕНЬ ДЛИННОЕ НАЗВАНИЕ ГЛАВЫ КОТОРОЕ НИКАК НЕ ВЛЕЗАЕТ В ОДНУ СТРОКУ ЭКРАНА"])
-def test_long_title_never_wider_than_limit(title):
+def test_long_title_never_wider_than_limit():
     pytest.importorskip("PIL")
-    size, lines, ok = cc.title_layout(title, FONT)
-    assert ok and 1 <= len(lines) <= 2
-    assert " ".join(lines) == title
-    assert max(cc._text_width(x, size, FONT) for x in lines) <= cc.CARD_TITLE_MAX_WIDTH
+    import text_style
+    for title in ("Ткачи, которым не нужны были деньги", "Горцы, которые запретили пленных"):
+        size, lines = text_style.title_lines(title)
+        assert 1 <= len(lines) <= 2 and " ".join(lines) == title
+        assert max(text_style.text_width(x, text_style.SERIF, size) for x in lines) <= 1640
 
 
 def test_timing_follows_approved_demo():
@@ -95,13 +88,37 @@ def test_timing_clamped_on_short_clip():
     assert tm["dissolve"] >= 1.7 - 1e-9
 
 
-def test_filter_has_title_and_line_but_no_chapter_label():
-    fc = cc.card_filter("человек, который вёл счёт", 1.7, 9.0, FONT, FONT, lambda s: s)
-    assert "ЧЕЛОВЕК, КОТОРЫЙ ВЁЛ СЧЁТ" in fc
-    assert "ГЛАВА" not in fc
-    assert "drawbox" in fc and "0xC8102E" in fc
+def test_filter_blurs_clip_and_overlays_text_block(tmp_path):
+    """Оформление 25.10: текст заставки — PNG-блок text_style поверх
+    размытого клипа (movie=), без drawtext и без красной линии."""
+    fc = cc.card_filter("человек, который вёл счёт", 1.7, 9.0, FONT, FONT, lambda s: s,
+                        tmp_dir=str(tmp_path))
+    assert "drawtext" not in fc and "drawbox" not in fc and "0xC8102E" not in fc
+    assert fc.count("movie=") == 2            # резкий и размытый вариант названия
     assert "boxblur=24:2" in fc and "brightness=-0.16:saturation=0.55" in fc
     assert "vignette=PI/4" in fc and "overlay=format=yuv420p10" in fc
+    assert fc.rstrip().endswith("[vout]")
+
+
+def test_chapter_kicker_only_for_chapter_style_with_number(tmp_path, monkeypatch):
+    import text_style
+    seen = []
+    real = text_style.title_block
+    monkeypatch.setattr(text_style, "title_block",
+                        lambda t, k=None, **kw: seen.append(k) or real(t, k, **kw))
+    cc.card_filter("Поле", 1.8, 8.0, FONT, FONT, lambda s: s, style=cc.CHAPTER,
+                   tmp_dir=str(tmp_path), chapter_n=2)
+    cc.card_filter("Рыцари почти не убивали", 2.4, 8.0, FONT, FONT, lambda s: s, style=cc.TITLE,
+                   tmp_dir=str(tmp_path), chapter_n=1)
+    assert seen == ["ГЛАВА ВТОРАЯ", None]
+
+
+def test_chapter_marker_added_after_dissolve_when_clip_is_long(tmp_path):
+    long_ = cc.card_filter("Поле", 1.8, 9.0, FONT, FONT, lambda s: s, tmp_dir=str(tmp_path),
+                           chapter_n=3, marker_title="Поле")
+    short = cc.card_filter("Поле", 1.8, 3.6, FONT, FONT, lambda s: s, tmp_dir=str(tmp_path),
+                           chapter_n=3, marker_title="Поле")
+    assert long_.count("movie=") == 4 and short.count("movie=") == 2
 
 
 def test_hit_gain_three_lu_below_voice_and_peak_capped():

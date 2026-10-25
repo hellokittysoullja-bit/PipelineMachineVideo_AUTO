@@ -32,11 +32,12 @@ PLACE_HOLD_SEC = 3.8          # от начала печати до начала
 PLACE_FADE_OUT = 0.45
 PLACE_MIN_SHOW_SEC = 2.0      # меньше — подписи нет (клип короче)
 PLACE_X = 118
-PLACE_SIZE, YEAR_SIZE = 56, 40       # +17% к демо (48/34) — правка владельца
+PLACE_SIZE, YEAR_SIZE = 66, 42       # антиква (оформление 25.10): x-высота ниже гротеска, кегль крупнее
 PLACE_Y, YEAR_Y = 764, 832           # низ года ~872 — над зоной кнопок YouTube (880)
-PLACE_BAR_W = 4
+PLACE_BAR_W = 2
 PLACE_BAR_X_GAP = 22
-YEAR_COLOR = "0xE8E2D6"
+YEAR_COLOR = "0xD9D2C4"
+TEXT_COLOR = "0xEEE7DA"       # слоновая кость, как у text_style.IVORY
 CURSOR_BLINK = (0.5, 0.3)     # период, сколько горит
 CURSOR_SEC = 1.2
 KEY_GAP_LU = 20.0             # щелчок клавиши: макс. мгновенная на 20 LU ниже голоса (демо: -34 при -14)
@@ -51,7 +52,7 @@ QUOTE_MAX_LINES = 3
 QUOTE_BLUR = "boxblur=26:2"
 QUOTE_EQ = "eq=brightness=-0.22:saturation=0.5"
 QUOTE_VIGNETTE = "vignette=PI/4"
-QUOTE_AUTHOR_COLOR = "0xD8D2C6"
+QUOTE_AUTHOR_COLOR = "0xC9A76A"
 SPEECH_VERBS = ("писал", "пишет", "написал", "записал", "сказал", "говорил", "говорит",
                 "вспоминал", "вспоминает", "ответил", "заявил", "восклицал", "кричал",
                 "приказал", "произнёс", "произнес", "сообщал", "сообщает", "признавался",
@@ -155,8 +156,8 @@ def place_caption_chain(cap, local_start, dur, font_place, font_year, escape, ye
     # Дата без места пишется шрифтом места: одна строка должна читаться так же
     # уверенно, как название (тонкий шрифт года в одиночку выглядел подписью
     # к пустоте — проверено на кадре эп.05).
-    lines = ((cap["year"], year_y, year_size, font_place, "white", 0),) if date_only else (
-        (cap["place"], PLACE_Y, PLACE_SIZE, font_place, "white", 0),
+    lines = ((cap["year"], year_y, year_size, font_place, TEXT_COLOR, 0),) if date_only else (
+        (cap["place"], PLACE_Y, PLACE_SIZE, font_place, TEXT_COLOR, 0),
         (cap["year"], YEAR_Y, YEAR_SIZE, font_year, YEAR_COLOR, len(cap["place"])))
     for txt, y, fs, font, col, off in lines:
         for n in range(1, len(txt) + 1):

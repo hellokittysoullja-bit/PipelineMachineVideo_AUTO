@@ -58,18 +58,16 @@ def test_preview_runs_before_any_media_is_fetched_or_rendered():
     assert src.index("write_audio_preview(") < src.index("run_ffmpeg_with_retry")
 
 
-def test_stat_cues_match_the_variant_rule():
-    """Каждая пятая плашка — машинка со своими щелчками, остальные — тик."""
+def test_stat_cues_one_sound_per_plate():
+    """Оформление 25.10: у каждой плашки один звук, машинки нет."""
     blocks, durs, starts, base = [], [], [], []
     for i in range(7):
         blocks.append({"section": "BLOCK 1", "text": "x", "words": 10,
                        "stat": f"{i} КГ", "stat_word_pos": 5})
         durs.append(6.0); starts.append(i * 10.0); base.append(6.0)
     clicks, plates = ps.plan_stat_sound_cues(blocks, durs, starts, base)
-    assert len(plates) == 6, "тик обязан быть у всех, кроме пятой"
-    assert {p["block"] for p in plates} == {0, 1, 2, 3, 5, 6}
-    assert clicks, "у пятой плашки — посимвольные щелчки"
-    assert all(40.0 <= c <= 50.0 for c in clicks), "щелчки внутри своего блока"
+    assert len(plates) == 7 and clicks == []
+    assert {p["block"] for p in plates} == set(range(7))
 
 
 def test_blocks_without_a_stat_make_no_sound():

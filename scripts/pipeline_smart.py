@@ -54,7 +54,8 @@ except ImportError:
     np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
 
 from PIL import (Image as PILImage, ImageOps as PILImageOps,
-                 ImageFilter as PILImageFilter, ImageEnhance as PILImageEnhance)   # Pillow уже обязательная зависимость (requirements.txt)
+                 ImageFilter as PILImageFilter, ImageEnhance as PILImageEnhance,
+                 ImageDraw as PILImageDraw)   # Pillow уже обязательная зависимость (requirements.txt)
 
 try:
     import cv2
@@ -238,6 +239,7 @@ SCRIPT_FILE = os.path.join(VIDEO_FOLDER, "script.txt")
 MEDIA_FOLDER = os.path.join(VIDEO_FOLDER, "media")
 OUTPUT_FILE = os.path.join(VIDEO_FOLDER, "final.mp4")
 TEMP_FOLDER = os.path.join(VIDEO_FOLDER, "temp_smart")
+TEXT_STYLE_DIR = os.path.join(TEMP_FOLDER, "text_style")   # PNG-блоки экранного текста (text_style.py)
 
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -1221,17 +1223,15 @@ from script_parser import (PAUSE_DURATIONS, parse_blocks, parse_pexels_queries, 
 # (проверено вживую: буквы рисуются квадратами-тофу). Russo One — с родной
 # кириллицей от российской студии, того же плакатного характера.
 FONTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts")
-# Типографическая иерархия (не один шрифт на всё): Benzin ExtraBold — жирный
-# плакатный display для "геройского" текста (хук-титры, цифры-доказательства
-# в stat-плашках), Montserrat ExtraBold — второй уровень для подписи раздела
-# (менее кричащий, но всё ещё жирный гротеск) вместо того же display-шрифта
-# в меньшем кегле. Оба протестированы вживую на полную кириллицу (65/65
-# букв) — в отличие от Anton, который в сессии раньше вообще не имел
-# кириллицы. RussoOne остаётся дальше по цепочке как safe fallback, если
-# файлов Benzin/Montserrat вдруг нет на диске (не ломает сборку).
+# Типографическая иерархия (оформление 25.10, утверждено владельцем по
+# видео «было / стало»): классическая антиква Cormorant Garamond (OFL) —
+# основной экранный текст, строчными; Montserrat Medium — мелкие подписи.
+# Широкий гротеск Benzin капсом (прежнее оформление) снят с рендера, файл
+# оставлен в assets/fonts про запас. Дальше по цепочке — запасные шрифты,
+# если файлов вдруг нет на диске (не ломает сборку).
 FONT_CANDIDATES = [
-    os.path.join(FONTS_DIR, "Benzin-ExtraBold.ttf"),
-    os.path.join(FONTS_DIR, "RussoOne-Regular.ttf"),
+    os.path.join(FONTS_DIR, "CormorantGaramond-SemiBold.ttf"),
+    os.path.join(FONTS_DIR, "Montserrat-SemiBold.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
     "C:/Windows/Fonts/arialbd.ttf",
@@ -1244,7 +1244,7 @@ FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.exists(p)), None)
 FONT_IS_DISPLAY = bool(FONT_PATH) and any(name in FONT_PATH for name in ("Benzin", "RussoOne"))
 
 FONT_SECONDARY_CANDIDATES = [
-    os.path.join(FONTS_DIR, "Montserrat-ExtraBold.ttf"),
+    os.path.join(FONTS_DIR, "Montserrat-Medium.ttf"),
 ]
 # Секондари не находится -> используем тот же FONT_PATH, что и раньше (одна
 # гарнитура на всё) — деградация к старому поведению, не падение.
@@ -1739,7 +1739,21 @@ _UI_SFX_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
                             "assets", "sfx", "ui")
 CHAPTER_SFX_PATHS = (os.path.join(_TRANSITION_SFX_DIR, "chapter_turn_short.flac"),
                       os.path.join(_TRANSITION_SFX_DIR, "chapter_turn_long.flac"))
-PLATE_TICK_PATH = _library_first("sfx", "plate_tick", os.path.join(_UI_SFX_DIR, "plate_tick.flac"))
+# Звуки оформления 25.10 (решение владельца): плашка — whoosh_fast, разгон
+# перед ударом заставки и тихий акцент подписи источника — swoosh, печать
+# места и даты — удары клавиш из keyboard (scripts: нарезка в
+# assets/library/sfx/keyboard_keys). Прежние щелчок плашки, машинка и
+# акцент кульминации сняты; файлы остаются в библиотеке.
+PLATE_TICK_PATH = _library_first("sfx", "whoosh_fast",
+                                 _library_first("sfx", "plate_tick", os.path.join(_UI_SFX_DIR, "plate_tick.flac")))
+SWOOSH_PATH = _library_first("sfx", "swoosh", None)
+# Пик whoosh_fast ~0.12с от начала файла, пик swoosh ~0.36с (замер огибающей
+# 25.10): звук ставится раньше события на эту величину, чтобы пик совпал
+# с появлением текста или с ударом заставки.
+PLATE_SFX_PEAK_SEC = 0.12
+SWOOSH_PEAK_SEC = 0.36
+CARD_SWOOSH_GAIN_OFFSET_DB = -3.0     # разгон тише удара, который он вводит
+SOURCE_SWOOSH_GAIN_OFFSET_DB = -10.0  # подпись источника: тихий, не отвлекающий
 # ЗАПАСНЫЕ константы на случай, если громкость ассета не измерится (см.
 # sfx_cue_gain_db() ниже — основной путь меряет, а не угадывает). Раньше
 # это были единственные числа, и расчёт держался на допущении «ассет
@@ -1900,7 +1914,8 @@ def place_caption_key_cues(blocks, voice_path):
     if not caps:
         return []
     import screen_text
-    keys = library_sounds("sfx", "typewriter") or list(KEYBOARD_CLICK_PATHS)
+    keys = (library_sounds("sfx", "keyboard_keys") or library_sounds("sfx", "typewriter")
+            or list(KEYBOARD_CLICK_PATHS))
     if not keys:
         return []
     voice = measure_integrated_lufs(voice_path) if voice_path else None
@@ -1943,7 +1958,8 @@ def chapter_sfx_variants():
     # Библиотека настоящих записей — первой; синтезированная пара только
     # если библиотека для этого вида пуста. Длительности читаются у файлов:
     # планировщик подбирает вариант под реальный размер паузы.
-    candidates = library_sounds("sfx", "chapter_turn") or list(CHAPTER_SFX_PATHS)
+    candidates = (library_sounds("sfx", "swoosh") or library_sounds("sfx", "chapter_turn")
+                  or list(CHAPTER_SFX_PATHS))
     for path in candidates:
         if not os.path.exists(path):
             continue
@@ -2330,8 +2346,24 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
             if c.get("kind") not in ("chapter", "plate") or c.get("hit"):
                 continue
             gain, src = sfx_cue_gain_db(c.get("asset"), c["kind"])
+            if gain is not None and c.get("gain_offset_db"):
+                gain = round(gain + float(c["gain_offset_db"]), 2)
             c["gain_db"] = gain
             c["gain_source"] = src
+        # Разгон swoosh перед каждым ударом заставки (оформление 25.10): пик
+        # swoosh приходится на удар. Ставится напрямую, мимо планировщика:
+        # он стоит ближе SFX_MIN_GAP_SEC к удару по замыслу, и правило
+        # минимального интервала его бы выбросило.
+        if SWOOSH_PATH:
+            sw_gain, sw_src = sfx_cue_gain_db(SWOOSH_PATH, "chapter")
+            for c in [c for c in accepted if c.get("hit") and c.get("gain_db") is not None]:
+                if sw_gain is None:
+                    break
+                accepted.append({"kind": "card_swoosh", "time": max(0.0, c["time"] - SWOOSH_PEAK_SEC),
+                                 "block": c.get("block"), "section": c.get("section"),
+                                 "asset": SWOOSH_PATH,
+                                 "gain_db": round(sw_gain + CARD_SWOOSH_GAIN_OFFSET_DB, 2),
+                                 "gain_source": sw_src})
     except Exception as e:
         print(f"  ВНИМАНИЕ: планировщик эффектов не отработал ({type(e).__name__}), "
               f"звук собирается как раньше.")
@@ -2478,23 +2510,17 @@ def plan_stat_sound_cues(blocks, durs, sub_starts, sub_baseline):
         stat_word_pos = b.get("stat_word_pos")
         # Та же word-count-пропорция, что задаёт появление текста в кадре.
         stat_delay = (stat_word_pos / max(1, b["words"]) * d) if stat_word_pos else 0.0
-        if stat_variant % 5 == 4:
-            real_dur = sub_baseline[i]
-            real_delay = stat_reveal_moment(stat_delay, real_dur, STAT_REVEAL_TAIL_TYPEWRITER_SEC)
-            click_text = stat.upper() if FONT_IS_DISPLAY else stat
-            _, click_cd = typewriter_reveal_timing(len(click_text), real_delay, real_dur)
-            clicks.extend(sub_starts[i] + real_delay + k * click_cd
-                          for k in range(len(click_text)))
-        else:
-            plates.append({
-                "time": sub_starts[i] + stat_reveal_moment(
-                    stat_delay, sub_baseline[i], STAT_REVEAL_TAIL_TICK_SEC),
-                "block": i,
-                "section": b["section"],
-                "stat": stat,
-                "asset": PLATE_TICK_PATH,
-                "gain_db": SFX_PLATE_GAIN_DB,
-            })
+        # Оформление 25.10: машинки у плашки больше нет — у каждой плашки
+        # один звук (whoosh_fast), пик которого совпадает с появлением цифры.
+        plates.append({
+            "time": max(0.0, sub_starts[i] + stat_reveal_moment(
+                stat_delay, sub_baseline[i], STAT_REVEAL_TAIL_TICK_SEC) - PLATE_SFX_PEAK_SEC),
+            "block": i,
+            "section": b["section"],
+            "stat": stat,
+            "asset": PLATE_TICK_PATH,
+            "gain_db": SFX_PLATE_GAIN_DB,
+        })
     return clicks, plates
 
 
@@ -11003,7 +11029,6 @@ TYPEWRITER_CLICK_GAIN_DB = -6.0
 # Запас в конце блока при пересчёте момента плашки. У машинки он большой
 # (1.2с) — ей нужно место на саму посимвольную печать; тику хватает его
 # собственной длины с небольшим запасом.
-STAT_REVEAL_TAIL_TYPEWRITER_SEC = 1.2
 STAT_REVEAL_TAIL_TICK_SEC = 0.3
 
 
@@ -11022,60 +11047,9 @@ def stat_reveal_moment(stat_delay, real_dur, tail_margin):
     return max(0.0, min(float(stat_delay), max(0.0, float(real_dur) - float(tail_margin))))
 
 
-def typewriter_reveal_timing(n_chars, delay, dur, fin_dur=0.25, hold_margin=0.5):
-    """Общая математика тайминга посимвольного появления — используется И в
-    add_overlays() (визуал, локальное время клипа), И в main() при сборе
-    таймкодов звука (реальное абсолютное время ролика) — ОДНА функция, чтобы
-    визуал и звук печатной машинки не могли разъехаться по скорости из-за
-    двух независимо подправленных копий одной и той же формулы клэмпа."""
-    hold = max(delay + fin_dur, dur - hold_margin)
-    cd = TYPEWRITER_CHAR_DUR
-    if n_chars > 0 and delay + n_chars * cd > hold:
-        cd = max(0.02, (hold - delay) / n_chars)
-    return hold, cd
-
-
-# Геометрические нормы экранного текста (сверка 13.09, отраслевой стандарт
-# титров для 1920x1080). Варианты 0-2 им и так соответствовали, вариант 3
-# нарушал все три сразу — см. комментарий у него.
-#  * поле от края — не меньше 5% ширины кадра (96 px);
-#  * низ текста — выше зоны, где YouTube рисует полосу перемотки и кнопки
-#    (нижние ~18% кадра); на телефоне они всплывают от каждого касания.
-STAT_SAFE_MARGIN_PX = 96
-STAT_CORNER_RULE_BOTTOM_PX = 200   # подчёркивание: 1080-200 = 880, верхняя граница зоны плеера
-STAT_CORNER_TEXT_BOTTOM_PX = 252   # текст над подчёркиванием, тем же шагом
-
-
-def pick_stat_variant(stat_variant, media_path=None):
-    """D5: среди "статичных" оформлений плашки (0/1/2/3 — баннер-бокс/
-    крупный центр без бокса/боковой акцент/мелкий угол) выбор не чисто по
-    кругу, а с поправкой на РЕАЛЬНЫЙ контраст/плотность кадра под ней:
-    - плотный кадр (busy>0.55, много локальных перепадов — макро/деталь) ->
-      мелкий угловой (3), крупная плашка перекрыла бы сюжет;
-    - малоконтрастный фон (узкий диапазон белая-чёрная точка) -> крупный
-      центральный текст без бокса (1) читается безопасно, бокс тут не нужен;
-    - просторный И контрастный кадр -> боковой акцент (2), есть настоящее
-      негативное пространство под полосу+текст;
-    - смешанный случай -> классический баннер с боксом (0), самый
-      универсально безопасный (бокс сам создаёт контраст, не полагается на
-      то, что уже есть в кадре).
-    media_path=None (видео-клип или PIL/np недоступны) -> откат на прежний
-    чистый round-robin (%4) — не регрессия, а прежнее поведение."""
-    if media_path is None:
-        return stat_variant % 4
-    try:
-        busy = estimate_busyness(media_path)
-        levels = measure_levels(media_path)
-        contrast = (levels[1] - levels[0]) if levels else 0.5
-    except Exception:
-        return stat_variant % 4
-    if busy > 0.55:
-        return 3
-    if contrast < 0.35:
-        return 1
-    if busy < 0.25 and contrast > 0.55:
-        return 2
-    return 0
+# Варианты плашки (баннер/центр/бок/угол/машинка) и их нормы геометрии удалены
+# с оформлением 25.10: плашка одна, text_style.stat_block, геометрию держит
+# tests/test_stat_plate_geometry.py по нарисованным пикселям.
 
 
 def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay=0.0, media_path=None):
@@ -11107,133 +11081,10 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
                f"y='h-180+(1-min(t/{fin:.2f}\\,1))*36':"
                f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
                f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
-    if stat and FONT_PATH:
-        fin_dur = 0.25
-        # Плашка раньше ВСЕГДА стартовала от t=0 клипа — независимо от того,
-        # где внутри фразы реально произносится число (см. stat_word_pos в
-        # parse_blocks/split_long_blocks). Цифра появлялась на экране
-        # заметно раньше, чем её произносили. delay — момент внутри клипа,
-        # когда число уже озвучено; clamp оставляет минимум ~1.2с на сам
-        # fade-in/hold/fade-out, даже если delay пришёлся почти на конец
-        # клипа (не даём плашке исчезнуть, не успев появиться). Резерв —
-        # STAT_PLATE_TAIL_SEC (читаемые 1.2с ПЛЮС длительность уходящего
-        # xfade, см. её комментарий: на готовом файле плашка жила 0.5с
-        # вместо 1.2 именно потому, что резерв считался в шкале клипа).
-        delay = max(0.0, min(stat_delay, dur - STAT_PLATE_TAIL_SEC))
-        fin = delay + fin_dur
-        hold = max(fin, dur - 0.5)
-        text = stat.upper() if FONT_IS_DISPLAY else stat
-        safe = escape_drawtext(text)
-        alpha = (f"if(lt(t\\,{delay:.2f})\\,0\\,"
-                 f"if(lt(t\\,{fin:.2f})\\,(t-{delay:.2f})/{fin_dur:.2f}\\,"
-                 f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4))))")
-        # D4: печатная машинка — фиксированный round-robin слот "не всегда"
-        # (1 из 5 появлений цифры/даты), независимо от D5 ниже. D5: остальные
-        # 4/5 появлений выбирают оформление по контрасту кадра, не по кругу.
-        variant = 4 if stat_variant % 5 == 4 else pick_stat_variant(stat_variant, media_path)
-        if variant == 0:
-            # Классический баннер — верх кадра, слайд сверху.
-            fs = 58 if FONT_IS_DISPLAY else 64
-            vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{safe}':"
-                   f"fontcolor=white:fontsize={fs}:"
-                   f"box=1:boxcolor={STAT_ACCENT}@0.92:boxborderw=18:"
-                   f"x=(w-text_w)/2:"
-                   f"y='110-(1-max(0\\,min((t-{delay:.2f})/{fin_dur:.2f}\\,1)))*26':"
-                   f"alpha='{alpha}'")
-        elif variant == 1:
-            # Крупное число по центру кадра — без плашки, тень вместо box.
-            fs = 96 if FONT_IS_DISPLAY else 108
-            vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{safe}':"
-                   f"fontcolor=white:fontsize={fs}:"
-                   f"shadowcolor=black@0.85:shadowx=4:shadowy=4:"
-                   f"borderw=2:bordercolor=black@0.6:"
-                   f"x=(w-text_w)/2:y=(h-text_h)/2:"
-                   f"alpha='{alpha}'")
-        elif variant == 2:
-            # Боковой акцент — число слева, вертикальная полоса рядом.
-            fs = 62 if FONT_IS_DISPLAY else 68
-            # drawbox: w/h в x/y-выражениях ссылаются на СОБСТВЕННЫЕ параметры
-            # бокса (w=8, h=160), не на кадр — иначе бы (h-160)/2 = 0
-            # (самоссылка h=160-160=0), поймано на реальном рендере (полоса
-            # уезжала в самый верх кадра). ih/iw — явно "кадр", не бокс.
-            vf += (f",drawbox=x=100:y=(ih-160)/2:w=8:h=160:"
-                   f"color={STAT_ACCENT}@0.92:t=fill:"
-                   f"enable='between(t\\,{delay:.2f}\\,{hold:.2f})'"
-                   f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{safe}':"
-                   f"fontcolor=white:fontsize={fs}:"
-                   f"shadowcolor=black@0.8:shadowx=3:shadowy=3:"
-                   f"x=130:y=(h-text_h)/2:"
-                   f"alpha='{alpha}'")
-        elif variant == 3:
-            # Минимальный — текст в нижнем правом углу, подчёркивание. По
-            # смыслу подпись, не геройская цифра — вторичный шрифт, но
-            # реальная жалоба (скриншот пользователя): на практике читалась
-            # как "слишком мелкая и незаметная" на фоне живой картинки —
-            # 34-38px терялись рядом с деталями кадра. Крупнее + тёмная
-            # подложка под текст для контраста (не превращаем в баннер
-            # variant 0 — подложка полупрозрачная и только под текстом, не
-            # во весь угол), позиция и логика (right-aligned, подчёркивание)
-            # не менялись — только заметность.
-            # Кегль/поля/высота приведены к тем же нормам, что у вариантов
-            # 0-2 (найдено сверкой геометрии 13.09 — вариант 3 нарушал ТРИ
-            # нормы сразу, остальные три варианта ни одной):
-            #  * кегль был 46-52 при отраслевой норме от 54 (5% высоты
-            #    кадра) — на телефоне это уже нечитаемо. Рядом в истории
-            #    правок стоит жалоба пользователя "слишком мелкая и
-            #    незаметная", по которой кегль подняли с 34-38 до 46-52 —
-            #    то есть проблему знали, но до нормы так и не довели;
-            #  * правый отступ был 70 при норме не меньше 96 (5% ширины) —
-            #    текст прижимался к самому краю;
-            #  * САМОЕ ВАЖНОЕ: текст стоял на y=h-140 (=940 в кадре 1080),
-            #    а подчёркивание на ih-88 (=992) — это ровно та зона, где
-            #    YouTube рисует полосу перемотки и кнопки. На телефоне они
-            #    всплывают от каждого касания и перекрывают подпись.
-            #    STAT_CORNER_BOTTOM_Y держит низ подчёркивания выше этой
-            #    зоны, текст поднимается над ним.
-            fs = 56 if FONT_IS_DISPLAY else 60
-            vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_SECONDARY_PATH)}':text='{safe}':"
-                   f"fontcolor=white:fontsize={fs}:"
-                   f"box=1:boxcolor=black@0.5:boxborderw=12:"
-                   f"borderw=2:bordercolor=black@0.7:"
-                   f"x=w-text_w-{STAT_SAFE_MARGIN_PX}:y=h-{STAT_CORNER_TEXT_BOTTOM_PX}:"
-                   f"alpha='{alpha}'"
-                   f",drawbox=x=iw-300:y=ih-{STAT_CORNER_RULE_BOTTOM_PX}:w=240:h=4:"
-                   f"color={STAT_ACCENT}@0.92:t=fill:"
-                   f"enable='between(t\\,{delay:.2f}\\,{hold:.2f})'")
-        else:
-            # D4: печатная машинка — сверено с референсом пользователя
-            # (архивная аэросъёмка, дата "12.09.2020"): НЕ крупный "геройский"
-            # центр кадра (как было раньше), а скромная подпись в нижней
-            # трети — субтильный вес, тонкая тень вместо жирного борда, ближе
-            # к "архивной датировке кадра", чем к рекламному баннеру. По X
-            # оставлен центр (не копируем точный сдвиг референса влево — тот
-            # кадр 9:16 с другим соотношением сторон, а текст variant 4 может
-            # быть разной длины/языка, центр — единственное универсально
-            # безопасное положение по горизонтали).
-            # Символы появляются один за другим (та же ставка
-            # TYPEWRITER_CHAR_DUR, что задаёт таймкоды звука в
-            # main()/add_typewriter_clicks), после полного текста — обычная
-            # задержка и fade-out, как у остальных вариантов. Цепочка
-            # drawtext: filter k показывает text[:k+1] ТОЛЬКО в своём окне
-            # [delay+k*cd, delay+(k+1)*cd) — сменяется следующим, длиннее на
-            # один символ; последний остаётся до конца hold+fade-out.
-            n_chars = len(text)
-            _, cd = typewriter_reveal_timing(n_chars, delay, dur)
-            fs = 56 if FONT_IS_DISPLAY else 62
-            for k in range(n_chars):
-                sub = escape_drawtext(text[:k + 1])
-                seg_start = delay + k * cd
-                # Аудит 04.09: enable обрывался ровно на hold, а alpha гасит
-                # текст на hold..hold+0.4 — fade-out никогда не рисовался, текст
-                # исчезал скачком. Окно enable покрывает весь fade.
-                seg_end = min(dur, hold + 0.4) if k == n_chars - 1 else delay + (k + 1) * cd
-                seg_alpha = alpha if k == n_chars - 1 else "1"
-                vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{sub}':"
-                       f"fontcolor=white:fontsize={fs}:"
-                       f"shadowcolor=black@0.7:shadowx=1:shadowy=1:"
-                       f"x=(w-text_w)/2:y=h*0.78-text_h/2:"
-                       f"enable='between(t\\,{seg_start:.3f}\\,{seg_end:.3f})':"
-                       f"alpha='{seg_alpha}'")
+    # Плашка с цифрой (оформление 25.10) рисуется не здесь, а поверх
+    # готового клипа (clip_post_filter -> text_style.stat_block): drawtext
+    # не умеет проявления из размытия. stat остаётся в подписи функции —
+    # он входит в ключ кэша клипа.
     return vf
 
 
@@ -15569,12 +15420,15 @@ def estimate_depth(canvas_bgr):
 # обычный кроп уничтожил бы больше четверти кадра.
 ASPECT_FIT_MIN_RATIO = 4 / 3
 ASPECT_BACKDROP_BLUR = 42        # sigma размытия подложки на холсте 1920x1080
-ASPECT_BACKDROP_DARKEN = 0.55    # множитель яркости подложки (документ просит -15%, берём сильнее:
-                                  # подложка тут не фон сцены, а заполнение пустоты)
+ASPECT_BACKDROP_DARKEN = 0.42    # множитель яркости подложки (оформление 25.10: темнее, чтобы
+                                  # кадр «висел» над фоном; было 0.55)
+ASPECT_BACKDROP_SATURATION = 0.6 # подложка приглушена по цвету — не спорит с кадром
+ASPECT_FG_SHADOW = 0.78          # плотность мягкой тени под кадром (0 — без тени)
+ASPECT_FG_HAIRLINE = (205, 198, 184)  # тонкая светлая рамка вокруг кадра
 # Передний план вписывается не впритык к краю кадра, а с запасом под зум:
 # ZOOM_FLOOR=1.04 уже в первом кадре показывает 96% холста, поэтому при
 # полной высоте у страницы рукописи сразу срезался бы верх и низ.
-ASPECT_FIT_SAFE = 0.92
+ASPECT_FIT_SAFE = 0.87
 ASPECT_FIT_CACHE_DIR = "aspect_fit"
 
 
@@ -15691,7 +15545,8 @@ def aspect_fit_backdrop(photo_path, out_dir=None, width=None, height=None):
         key = hashlib.md5("|".join([
             os.path.abspath(photo_path), str(os.path.getmtime(photo_path)),
             str(os.path.getsize(photo_path)), f"{W}x{H}",
-            f"{ASPECT_BACKDROP_BLUR}:{ASPECT_BACKDROP_DARKEN}:{ASPECT_FIT_SAFE}",
+            f"{ASPECT_BACKDROP_BLUR}:{ASPECT_BACKDROP_DARKEN}:{ASPECT_FIT_SAFE}:"
+            f"{ASPECT_BACKDROP_SATURATION}:{ASPECT_FG_SHADOW}:{ASPECT_FG_HAIRLINE}",
         ]).encode()).hexdigest()[:12]
         dest = os.path.join(base, f"{key}.jpg")
         if os.path.exists(dest) and os.path.getsize(dest) > 0:
@@ -15705,12 +15560,24 @@ def aspect_fit_backdrop(photo_path, out_dir=None, width=None, height=None):
             bg = im.resize((bw, bh), PILImage.LANCZOS).crop(
                 ((bw - W) // 2, (bh - H) // 2, (bw - W) // 2 + W, (bh - H) // 2 + H))
             bg = bg.filter(PILImageFilter.GaussianBlur(ASPECT_BACKDROP_BLUR))
+            bg = PILImageEnhance.Color(bg).enhance(ASPECT_BACKDROP_SATURATION)
             bg = PILImageEnhance.Brightness(bg).enhance(ASPECT_BACKDROP_DARKEN)
             # Передний план: изображение целиком, вписанное с запасом под зум.
             fit = min(W * ASPECT_FIT_SAFE / im.width, H * ASPECT_FIT_SAFE / im.height)
             fw, fh = max(1, round(im.width * fit)), max(1, round(im.height * fit))
             fg = im.resize((fw, fh), PILImage.LANCZOS)
-            bg.paste(fg, ((W - fw) // 2, (H - fh) // 2))
+            fx, fy = (W - fw) // 2, (H - fh) // 2
+            if ASPECT_FG_SHADOW > 0:
+                # Мягкая тень чуть ниже кадра: кадр «висит» над подложкой.
+                sh = PILImage.new("L", (W, H), 0)
+                sh.paste(255, (fx, fy + round(H * 0.024), fx + fw, fy + fh + round(H * 0.024)))
+                sh = sh.filter(PILImageFilter.GaussianBlur(round(H * 0.042)))
+                sh = sh.point(lambda v: int(v * ASPECT_FG_SHADOW))
+                bg = PILImage.composite(PILImage.new("RGB", (W, H), (0, 0, 0)), bg, sh)
+            bg.paste(fg, (fx, fy))
+            if ASPECT_FG_HAIRLINE:
+                PILImageDraw.Draw(bg).rectangle((fx, fy, fx + fw - 1, fy + fh - 1),
+                                                outline=ASPECT_FG_HAIRLINE, width=1)
             tmp = dest + ".tmp"
             bg.save(tmp, "JPEG", quality=95, subsampling=0)
             os.replace(tmp, dest)
@@ -16995,21 +16862,26 @@ def chapter_card_recipe_signature():
         import chapter_card
         import screen_text
         import place_year
-        src = (chapter_card.card_signature_source() + inspect.getsource(screen_text)
+        import text_style
+        src = (chapter_card.card_signature_source() + text_style.signature_source()
+               + inspect.getsource(screen_text)
                + inspect.getsource(place_year) + inspect.getsource(apply_clip_post)
-               + inspect.getsource(clip_post_filter) + repr(sorted(SCREEN_TEXT_FONTS.items())))
+               + inspect.getsource(clip_post_filter) + inspect.getsource(finalize_clip_post)
+               + inspect.getsource(source_caption_lines) + repr(sorted(SCREEN_TEXT_FONTS.items())))
     except Exception:
         src = "chapter_card:unavailable"
     return "card:" + hashlib.md5(src.encode("utf-8")).hexdigest()[:10]
 
 
+# Оформление 25.10: антиква Cormorant Garamond, мелкие подписи — Montserrat.
 SCREEN_TEXT_FONTS = {
-    "place": os.path.join(FONTS_DIR, "Benzin-ExtraBold.ttf"),
-    "year": os.path.join(FONTS_DIR, "Montserrat-SemiBold.ttf"),
-    "quote": os.path.join(FONTS_DIR, "Montserrat-MediumItalic.ttf"),
-    "mark": os.path.join(FONTS_DIR, "Montserrat-ExtraBold.ttf"),
-    "author": os.path.join(FONTS_DIR, "Montserrat-SemiBold.ttf"),
+    "place": os.path.join(FONTS_DIR, "CormorantGaramond-SemiBold.ttf"),
+    "year": os.path.join(FONTS_DIR, "CormorantGaramond-MediumItalic.ttf"),
+    "quote": os.path.join(FONTS_DIR, "CormorantGaramond-MediumItalic.ttf"),
+    "mark": os.path.join(FONTS_DIR, "CormorantGaramond-SemiBold.ttf"),
+    "author": os.path.join(FONTS_DIR, "Montserrat-Medium.ttf"),
 }
+TEXT_ACCENT = "0xC9A76A"   # золотистая линия и курсор (было красное STAT_ACCENT)
 
 
 def mark_screen_text(blocks, starts, total, locked):
@@ -17064,6 +16936,124 @@ def clip_post_spec(b, card, clip_origin):
     return post or None
 
 
+SOURCE_CAPTION_MIN_CLIP_SEC = 2.8
+SOURCE_CAPTION_IN_SEC = 0.45
+SOURCE_CAPTION_HOLD_SEC = 3.6
+SOURCE_CAPTION_CUES = []   # звук подписи источника — собирается при рендере, сводится в main()
+# Учреждения, которые узнаются по названию файла Викисклада/Europeana. Только
+# точное совпадение подстроки: неизвестное учреждение — подписи нет, а не
+# догадка.
+SOURCE_INSTITUTIONS = (
+    ("Metropolitan Museum", "Метрополитен-музей, Нью-Йорк"),
+    ("Royal Ontario Museum", "Королевский музей Онтарио"),
+    ("Livrustkammaren", "Королевская оружейная палата, Стокгольм"),
+    ("Royal Armouries", "Королевская оружейная палата, Лидс"),
+    ("Wallace Collection", "Собрание Уоллеса, Лондон"),
+    ("British Library", "Британская библиотека"),
+    ("Bibliothèque nationale", "Национальная библиотека Франции"),
+    ("Rijksmuseum", "Рейксмузеум, Амстердам"),
+    ("Albertina", "Альбертина, Вена"),
+    ("Kunsthistorisches Museum", "Музей истории искусств, Вена"),
+    ("Musée de l'Armée", "Музей армии, Париж"),
+    ("Deutsches Historisches Museum", "Немецкий исторический музей, Берлин"),
+    ("Victoria and Albert", "Музей Виктории и Альберта, Лондон"),
+    ("Bodleian", "Бодлианская библиотека, Оксфорд"),
+    ("Walters Art Museum", "Музей искусств Уолтерса, Балтимор"),
+    ("Getty", "Музей Гетти, Лос-Анджелес"),
+    ("Morgan Library", "Библиотека и музей Моргана, Нью-Йорк"),
+    ("Koninklijke Bibliotheek", "Королевская библиотека Нидерландов"),
+)
+SOURCE_CHANNELS = {"met": "Метрополитен-музей, Нью-Йорк",
+                   "cleveland": "Кливлендский музей искусств",
+                   "chicago": "Институт искусств Чикаго"}
+
+
+def source_caption_lines(photo):
+    """(строка1, строка2) подписи источника по паспорту кадра или None.
+
+    Только факты из sidecar: учреждение — по каналу музея или по точному
+    имени в названии файла; годы — из паспорта предмета (begin/end). Ничего
+    не переводится и не досочиняется."""
+    try:
+        with open(photo + ".meta.json", encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return None
+    prov = meta.get("provenance")
+    if not isinstance(prov, dict):
+        return None
+    inst = SOURCE_CHANNELS.get(str(prov.get("channel") or "").lower())
+    if not inst:
+        hay = " ".join(str(prov.get(k) or "") for k in ("title", "provider", "institution"))
+        inst = next((ru for en, ru in SOURCE_INSTITUTIONS if en.lower() in hay.lower()), None)
+    if not inst:
+        return None
+    b, e = prov.get("begin"), prov.get("end")
+    try:
+        b = int(b) if b is not None else None
+        e = int(e) if e is not None else None
+    except (TypeError, ValueError):
+        b = e = None
+    years = (f"{b}–{e}" if (b and e and e != b) else str(b or e)) if (b or e) else None
+    return (years, inst) if years else (inst, None)
+
+
+def save_source_cue(out, post):
+    """Записать рядом с клипом момент подписи источника — чтобы кэш-хит
+    клипа на следующем прогоне получил тот же звук."""
+    path = out + ".source.json"
+    src = (post or {}).get("source")
+    try:
+        if src:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"t_in": src["t_in"]}, f)
+        elif os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def load_source_cue(out, i, visual_start):
+    try:
+        with open(out + ".source.json", encoding="utf-8") as f:
+            t_in = float(json.load(f)["t_in"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    return [source_swoosh_cue(i, visual_start, t_in)] if SWOOSH_PATH else []
+
+
+def source_swoosh_cue(i, visual_start, t_in):
+    return {"time": max(0.0, visual_start + t_in - SWOOSH_PEAK_SEC * 0.6),
+            "block": i, "section": None, "asset": SWOOSH_PATH,
+            "gain_db": SFX_PLATE_GAIN_DB, "gain_offset_db": SOURCE_SWOOSH_GAIN_OFFSET_DB}
+
+
+def finalize_clip_post(post, i, stat, stat_delay, d, photo, video, visual_start):
+    """Добавить к наложению поверх клипа плашку с цифрой и подпись источника
+    (оформление 25.10). Вызывается в момент рендера, когда кадр уже выбран.
+    Ключ кэша клипа их уже учитывает: stat и задержка входят в него, а файл
+    кадра однозначно задан остальным ключом."""
+    if not ON_SCREEN_TEXT_ENABLED:
+        return post
+    if stat:
+        post = dict(post or {})
+        post["stat"] = {"text": stat,
+                        "delay": round(max(0.0, min(float(stat_delay), d - STAT_PLATE_TAIL_SEC)), 3)}
+    busy = post and any(k in post for k in ("card", "stat", "quote", "caption"))
+    if photo and not video and not busy and d >= SOURCE_CAPTION_MIN_CLIP_SEC \
+            and feature_flags.enabled("SOURCE_CAPTION"):
+        lines = source_caption_lines(photo)
+        if lines:
+            t_in = SOURCE_CAPTION_IN_SEC
+            t_out = min(d - 0.6, t_in + SOURCE_CAPTION_HOLD_SEC)
+            post = dict(post or {})
+            post["source"] = {"line1": lines[0], "line2": lines[1],
+                              "t_in": round(t_in, 3), "t_out": round(t_out, 3)}
+            if SWOOSH_PATH:
+                SOURCE_CAPTION_CUES.append(source_swoosh_cue(i, visual_start, t_in))
+    return post
+
+
 def clip_post_filter(post, dur):
     """filter_complex для apply_clip_post: [0:v] -> [метка], метка."""
     import chapter_card
@@ -17071,10 +17061,13 @@ def clip_post_filter(post, dur):
     fc, label = "", "0:v"
     card = post.get("card")
     if card and FONT_PATH:
+        m = re.match(r"BLOCK\s+(\d+)", str(card.get("section") or ""), re.I)
         fc = chapter_card.card_filter(
             card["title"], card["lead"], dur, FONT_PATH, ffmpeg_filter_path(FONT_PATH),
             escape_drawtext, accent=STAT_ACCENT, fps=FPS, upper=FONT_IS_DISPLAY,
-            style=chapter_card.style_of(card))
+            style=chapter_card.style_of(card), tmp_dir=TEXT_STYLE_DIR,
+            path_value=ffmpeg_filter_path, chapter_n=int(m.group(1)) if m else None,
+            marker_title=section_title(card.get("section") or ""))
         label = "vout"
     q = post.get("quote")
     if q:
@@ -17084,12 +17077,34 @@ def clip_post_filter(post, dur):
         if g:
             fc = (fc + ";" if fc else "") + g
             label = "vq"
+    st = post.get("stat")
+    if st:
+        import text_style
+        img = text_style.stat_block(st["text"])
+        key = f"stat|{st['text']}|{text_style.signature_source()}"
+        sharp, blur = text_style.save_pair(img, TEXT_STYLE_DIR, key)
+        t_in = float(st["delay"])
+        t_out = max(t_in + 1.2, float(dur) - 0.55)
+        g = text_style.pulled_overlay(label, "vst", ffmpeg_filter_path(sharp), ffmpeg_filter_path(blur),
+                                      t_in, t_out, dur, FPS, "st", drift_x=8)
+        fc = (fc + ";" if fc else "") + g
+        label = "vst"
+    src = post.get("source")
+    if src:
+        import text_style
+        img = text_style.source_block(src["line1"], src.get("line2"))
+        key = f"src|{src['line1']}|{src.get('line2')}|{text_style.signature_source()}"
+        sharp, blur = text_style.save_pair(img, TEXT_STYLE_DIR, key)
+        g = text_style.pulled_overlay(label, "vsrc", ffmpeg_filter_path(sharp), ffmpeg_filter_path(blur),
+                                      src["t_in"], src["t_out"], dur, FPS, "sr", rise=6)
+        fc = (fc + ";" if fc else "") + g
+        label = "vsrc"
     cap = post.get("caption")
     if cap:
         chain = screen_text.place_caption_chain(
             cap, cap["local"], dur, ffmpeg_filter_path(SCREEN_TEXT_FONTS["place"]),
             ffmpeg_filter_path(SCREEN_TEXT_FONTS["year"]), escape_drawtext,
-            SCREEN_TEXT_FONTS["year"], accent=STAT_ACCENT, place_font_path=SCREEN_TEXT_FONTS["place"])
+            SCREEN_TEXT_FONTS["year"], accent=TEXT_ACCENT, place_font_path=SCREEN_TEXT_FONTS["place"])
         fc = (fc + ";" if fc else "") + f"[{label}]{chain}[vcap]"
         label = "vcap"
     return fc, label
@@ -18661,9 +18676,6 @@ def render_recipe_signature():
             # parallax_kenburns(): решают, какая часть фото попадёт в
             # crop=.
             resolve_crop_anchor, compute_crop_offset,
-            # pick_stat_variant — из add_overlays(): выбирает между 4
-            # визуально разными оформлениями stat-плашки.
-            pick_stat_variant,
             # detect_scene_change_offset — из video_render(): решает, с
             # какого момента исходного видео стартует клип (-ss).
             detect_scene_change_offset,
@@ -19822,6 +19834,10 @@ def main():
             # байт-в-байт прежние.
             cache_key += f"|post:{json.dumps(post, ensure_ascii=False, sort_keys=True)}|" \
                          f"{chapter_card_recipe_signature()}"
+        elif stat and ON_SCREEN_TEXT_ENABLED:
+            # Плашка рисуется поверх готового клипа (finalize_clip_post) —
+            # правка её вида обязана перерендерить такой клип.
+            cache_key += f"|statpost:{chapter_card_recipe_signature()}"
         params_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
@@ -19854,6 +19870,9 @@ def main():
             # независимо от того, кэш это или свежий рендер.
             pending_jobs.append({"i": i, "out": out, "d": d, "section": b["section"], "block": b,
                                   "video": False, "photo": None, "future": None, "ok": True})
+            # Звук подписи источника у клипа из кэша: момент берётся из файла,
+            # записанного при рендере (кадр здесь не выбирается заново).
+            SOURCE_CAPTION_CUES.extend(load_source_cue(out, i, visual_starts[i]))
             # Look Management/Semantic Visual Director не могут проанализировать
             # кэш-хит — нет сохранённого пути к исходному фото/свежих levels/wb
             # на этот прогон (см. ЗАМЕТКУ про shadow в look_reference.py).
@@ -20618,6 +20637,8 @@ def main():
         future = None
         # Клип с заставкой рендерится во временный файл, заставка
         # накладывается после рендера (apply_clip_post) уже в `out`.
+        post = finalize_clip_post(post, i, stat, stat_delay, d, photo, video, visual_starts[i])
+        save_source_cue(out, post)
         render_out = chapter_card_pre_path(out) if post else out
         try:
             if video:
@@ -21339,7 +21360,7 @@ def main():
     voice_processed = process_voice(AUDIO_FILE, voice_processed)
     premix = build_episode_audio_layers(
         voice_processed, VIDEO_FOLDER, TEMP_FOLDER, blocks, sub_starts, real_weights,
-        total, hook_end, final_start, typewriter_click_times, plate_sfx_cues,
+        total, hook_end, final_start, typewriter_click_times, list(plate_sfx_cues) + SOURCE_CAPTION_CUES,
         phrase_locked=bool(phrase_locked))
     # loudnorm — целевая громкость YouTube (-14 LUFS integrated, -1.5dB
     # true peak потолок, LRA 11) вместо "как есть от TTS". Было -16: на

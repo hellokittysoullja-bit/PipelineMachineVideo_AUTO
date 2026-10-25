@@ -3741,6 +3741,63 @@
    },
    "approved": true,
    "imported_at": 1792953211
+  },
+  "assets/library/sfx/keyboard_keys/owner_keyboard_key1.flac": {
+   "kind": "sfx",
+   "name": "keyboard_keys",
+   "source": "owner-provided",
+   "id": "owner:keyboard:key1",
+   "title": "keyboard.mp3, удар 1",
+   "creator": "владелец канала",
+   "license": "owner-provided",
+   "license_url": "",
+   "url": "",
+   "landing": "",
+   "query": "",
+   "scores": {
+    "reasons": [],
+    "derived_from": "assets/library/sfx/keyboard/owner_keyboard.flac"
+   },
+   "approved": true,
+   "imported_at": 1792966620
+  },
+  "assets/library/sfx/keyboard_keys/owner_keyboard_key2.flac": {
+   "kind": "sfx",
+   "name": "keyboard_keys",
+   "source": "owner-provided",
+   "id": "owner:keyboard:key2",
+   "title": "keyboard.mp3, удар 2",
+   "creator": "владелец канала",
+   "license": "owner-provided",
+   "license_url": "",
+   "url": "",
+   "landing": "",
+   "query": "",
+   "scores": {
+    "reasons": [],
+    "derived_from": "assets/library/sfx/keyboard/owner_keyboard.flac"
+   },
+   "approved": true,
+   "imported_at": 1792966620
+  },
+  "assets/library/sfx/keyboard_keys/owner_keyboard_key3.flac": {
+   "kind": "sfx",
+   "name": "keyboard_keys",
+   "source": "owner-provided",
+   "id": "owner:keyboard:key3",
+   "title": "keyboard.mp3, удар 3",
+   "creator": "владелец канала",
+   "license": "owner-provided",
+   "license_url": "",
+   "url": "",
+   "landing": "",
+   "query": "",
+   "scores": {
+    "reasons": [],
+    "derived_from": "assets/library/sfx/keyboard/owner_keyboard.flac"
+   },
+   "approved": true,
+   "imported_at": 1792966620
   }
  }
 }

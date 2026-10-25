@@ -38,13 +38,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import chapter_card  # noqa: E402
 import place_year  # noqa: E402
 import screen_text  # noqa: E402
+import text_style  # noqa: E402
 from script_parser import PAUSE_DURATIONS, parse_blocks  # noqa: E402
 
 WPM = 125.0                    # ЧАСТЬ 9 CLAUDE.md
 LONG_BLOCK_WORDS = 60          # блок длиннее — без [pause] TTS тянет и монтаж стоит
 DATES_PER_MIN_WARN = 4.0       # больше дат на минуту секции — зритель теряет нить
-STAT_PREVIEW_SIZE = 96         # худший случай плашки — вариант 1, крупно по центру
-STAT_MAX_WIDTH = 1920 - 2 * 96
+STAT_PREVIEW_SIZE = 96         # меньше этого кегля text_style.stat_block плашку не ужимает
+STAT_MAX_WIDTH = 1100            # колонка плашки text_style.stat_block (низ слева)
 # pipeline_smart.SUBCUT_MIN_SOURCE_DUR: фраза короче не режется на под-кадры,
 # то есть заставка или плашка на ней занимает её ЦЕЛИКОМ (тест держит равенство).
 SUBCUT_MIN_SOURCE_DUR = 8.0
@@ -200,8 +201,8 @@ def preflight(script_path, font_path=None):
     film = chapter_card.film_title(script_path, font)
     rep.section("Название ролика после хука")
     if film and title_sec:
-        size, lines, _ok = chapter_card.title_layout(film.upper(), font, chapter_card.TITLE)
-        rep.info(f"«{film.upper()}» перед «{title_sec}», кегль {size}: " + " / ".join(lines))
+        size, lines = text_style.title_lines(film, 96) or (96, [film])
+        rep.info(f"«{film}» перед «{title_sec}», кегль {size}: " + " / ".join(lines))
     elif not title_sec:
         rep.info("нет: после хука нет главы с названием")
     elif meta.get("TITLE_CARD") or meta.get("TITLE"):
@@ -217,9 +218,10 @@ def preflight(script_path, font_path=None):
             rep.info(f"{name[:40]}: заменена названием ролика")
             continue
         title = chapter_card.section_title(name)
-        size, lines, ok = chapter_card.title_layout(title.upper(), font, chapter_card.CHAPTER)
-        rep.info(f"«{title.upper()}» кегль {size}: " + " / ".join(lines) + ("" if ok else "  [НЕ ВЛЕЗАЕТ]"))
-        if not ok:
+        got = text_style.title_lines(title)
+        size, lines = got or (72, [title])
+        rep.info(f"«{title}» кегль {size}: " + " / ".join(lines) + ("" if got else "  [НЕ ВЛЕЗАЕТ]"))
+        if not got:
             rep.error(f"заголовок главы «{title}» не влезает в 2 строки даже кеглем {size}",
                       hint="короче название в === BLOCK N: … ===")
 
@@ -230,13 +232,13 @@ def preflight(script_path, font_path=None):
         rep.info("нет")
     for k, b in stats:
         text = str(b["stat"]).strip()
-        w = chapter_card._text_width(text.upper(), STAT_PREVIEW_SIZE, font)
-        rep.info(f"{_mmss(starts[k])} «{text.upper()}» — {_short(b['text'], 70)}")
+        w = text_style.text_width(text, text_style.SERIF, STAT_PREVIEW_SIZE)
+        rep.info(f"{_mmss(starts[k])} «{text}» — {_short(b['text'], 70)}")
         if not text:
             rep.error(f"пустая плашка [stat:] во фразе «{_short(b['text'], 60)}»")
         elif w > STAT_MAX_WIDTH:
-            rep.error(f"плашка «{text}» шире кадра в варианте «крупно по центру», который выбирается "
-                      f"по контрасту кадра ({w:.0f} > {STAT_MAX_WIDTH}px)",
+            rep.error(f"плашка «{text}» шире кадра: даже кеглем {STAT_PREVIEW_SIZE} она занимает "
+                      f"{w:.0f} px при колонке плашки {STAT_MAX_WIDTH}px",
                       hint="2-3 слова, число + единица")
 
     # --- место и год -------------------------------------------------------------
