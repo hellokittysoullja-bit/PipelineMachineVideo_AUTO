@@ -3684,6 +3684,63 @@
     "reasons": []
    },
    "imported_at": 1790992695
+  },
+  "assets/library/sfx/keyboard/owner_keyboard.flac": {
+   "kind": "sfx",
+   "name": "keyboard",
+   "source": "owner-provided",
+   "id": "owner:keyboard",
+   "title": "keyboard.mp3",
+   "creator": "владелец канала",
+   "license": "owner-provided",
+   "license_url": "",
+   "url": "",
+   "landing": "",
+   "query": "",
+   "scores": {
+    "reasons": [],
+    "duration": 0.627
+   },
+   "approved": true,
+   "imported_at": 1792953210
+  },
+  "assets/library/sfx/whoosh_fast/owner_whoosh_fast.flac": {
+   "kind": "sfx",
+   "name": "whoosh_fast",
+   "source": "owner-provided",
+   "id": "owner:whoosh_fast",
+   "title": "fast_whoosh.mp3",
+   "creator": "владелец канала",
+   "license": "owner-provided",
+   "license_url": "",
+   "url": "",
+   "landing": "",
+   "query": "",
+   "scores": {
+    "reasons": [],
+    "duration": 0.366
+   },
+   "approved": true,
+   "imported_at": 1792953211
+  },
+  "assets/library/sfx/swoosh/owner_swoosh.flac": {
+   "kind": "sfx",
+   "name": "swoosh",
+   "source": "owner-provided",
+   "id": "owner:swoosh",
+   "title": "Swoosh.MP3",
+   "creator": "владелец канала",
+   "license": "owner-provided",
+   "license_url": "",
+   "url": "",
+   "landing": "",
+   "query": "",
+   "scores": {
+    "reasons": [],
+    "duration": 0.653
+   },
+   "approved": true,
+   "imported_at": 1792953211
   }
  }
 }
