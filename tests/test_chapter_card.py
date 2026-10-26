@@ -366,3 +366,19 @@ def test_verify_timing_expects_card_cut_at_card_start(tmp_path):
     finally:
         mp.undo()
     assert seen["expected"] == [5.0, 8.3]
+
+
+def test_card_hit_survives_climax_window_but_not_hush():
+    """25.10: удар заставки — вход в главу, он важнее провала кульминации
+    (на эп.05 кульминация стоит сразу за заставкой главы 5, и удар молча
+    выпадал). Явной тишины [hush] он по-прежнему не нарушает."""
+    blocks = [{"section": s, "words": 10} for s in ("HOOK", "BLOCK 1: А", "FINAL")]
+    sub_starts, rw = [0.0, 5.0, 10.0], [3.0, 3.0, 3.0]
+    hits = {1: {"time": 3.07, "asset": "hit.flac", "asset_dur": 6.0}}
+    acc, dropped = sfx_plan.plan_sfx_cues(blocks, sub_starts, rw, 20.0, chapter_hits=hits,
+                                          reserved_windows=[(2.5, 7.0)])
+    assert any(c.get("hit") for c in acc)
+    blocks[1]["hush"] = True
+    acc, dropped = sfx_plan.plan_sfx_cues(blocks, sub_starts, rw, 20.0, chapter_hits=hits)
+    assert not any(c.get("hit") for c in acc)
+    assert any(d.get("hit") and d.get("reason") == "climax_window" for d in dropped)

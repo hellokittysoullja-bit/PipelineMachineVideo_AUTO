@@ -16867,7 +16867,8 @@ def chapter_card_recipe_signature():
                + inspect.getsource(screen_text)
                + inspect.getsource(place_year) + inspect.getsource(apply_clip_post)
                + inspect.getsource(clip_post_filter) + inspect.getsource(finalize_clip_post)
-               + inspect.getsource(source_caption_lines) + repr(sorted(SCREEN_TEXT_FONTS.items())))
+               + inspect.getsource(source_caption_lines) + inspect.getsource(screen_case)
+               + repr(sorted(SCREEN_TEXT_FONTS.items())))
     except Exception:
         src = "chapter_card:unavailable"
     return "card:" + hashlib.md5(src.encode("utf-8")).hexdigest()[:10]
@@ -17054,6 +17055,22 @@ def finalize_clip_post(post, i, stat, stat_delay, d, photo, video, visual_start)
     return post
 
 
+_SCRIPT_NAMES = []
+
+
+def screen_case(text, first_cap=True):
+    """Текст сценария (капс) -> регистр экрана, имена — по сценарию."""
+    import screen_text
+    import text_style
+    if not _SCRIPT_NAMES:
+        try:
+            with open(SCRIPT_FILE, encoding="utf-8") as f:
+                _SCRIPT_NAMES.append(screen_text.script_names(f.read()))
+        except OSError:
+            _SCRIPT_NAMES.append(set())
+    return text_style.smart_case(text, _SCRIPT_NAMES[0], first_cap=first_cap)
+
+
 def clip_post_filter(post, dur):
     """filter_complex для apply_clip_post: [0:v] -> [метка], метка."""
     import chapter_card
@@ -17063,11 +17080,11 @@ def clip_post_filter(post, dur):
     if card and FONT_PATH:
         m = re.match(r"BLOCK\s+(\d+)", str(card.get("section") or ""), re.I)
         fc = chapter_card.card_filter(
-            card["title"], card["lead"], dur, FONT_PATH, ffmpeg_filter_path(FONT_PATH),
+            screen_case(card["title"]), card["lead"], dur, FONT_PATH, ffmpeg_filter_path(FONT_PATH),
             escape_drawtext, accent=STAT_ACCENT, fps=FPS, upper=FONT_IS_DISPLAY,
             style=chapter_card.style_of(card), tmp_dir=TEXT_STYLE_DIR,
             path_value=ffmpeg_filter_path, chapter_n=int(m.group(1)) if m else None,
-            marker_title=section_title(card.get("section") or ""))
+            marker_title=screen_case(section_title(card.get("section") or "") or ""))
         label = "vout"
     q = post.get("quote")
     if q:
@@ -17080,8 +17097,9 @@ def clip_post_filter(post, dur):
     st = post.get("stat")
     if st:
         import text_style
-        img = text_style.stat_block(st["text"])
-        key = f"stat|{st['text']}|{text_style.signature_source()}"
+        txt = screen_case(st["text"], first_cap=False)
+        img = text_style.stat_block(txt)
+        key = f"stat|{txt}|{text_style.signature_source()}"
         sharp, blur = text_style.save_pair(img, TEXT_STYLE_DIR, key)
         t_in = float(st["delay"])
         t_out = max(t_in + 1.2, float(dur) - 0.55)

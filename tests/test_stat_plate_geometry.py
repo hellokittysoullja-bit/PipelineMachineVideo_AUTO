@@ -62,3 +62,14 @@ def test_chapter_marker_sits_in_the_top_left_safe_corner():
 def test_long_stat_shrinks_instead_of_running_off_frame():
     box = _bbox(ts.stat_block("около тридцати пяти килограммов"))
     assert box[2] <= 1920 - SIDE_MARGIN
+
+
+def test_script_caps_become_screen_case_with_names_kept():
+    """Капс сценария на экране — строчными (оформление 25.10); имя
+    собственное, которое сценарий где-то пишет с заглавной посреди
+    предложения, остаётся с заглавной, включая другую падежную форму."""
+    names = {"Лидсе", "Азенкуром"}
+    assert ts.smart_case("ЛАБОРАТОРИЯ В ЛИДСЕ", names) == "Лаборатория в Лидсе"
+    assert ts.smart_case("ТРИ ЧАСА АЗЕНКУРА", names) == "Три часа Азенкура"
+    assert ts.smart_case("20–25 КГ", names, first_cap=False) == "20–25 кг"
+    assert ts.smart_case("Уже по-авторски", names) == "Уже по-авторски"

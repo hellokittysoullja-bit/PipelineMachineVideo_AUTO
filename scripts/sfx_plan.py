@@ -565,8 +565,8 @@ def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
     candidates.extend(obj_cands)
 
     # Помеченная тишина защищается ТЕМ ЖЕ механизмом, что кульминация.
-    reserved_windows = list(reserved_windows or ()) + \
-        hush_windows(blocks, sub_starts, real_weights)
+    hush = hush_windows(blocks, sub_starts, real_weights)
+    reserved_windows = list(reserved_windows or ()) + hush
 
     # Сортировка по приоритету, потом по времени: при конфликте побеждает
     # более важный эффект независимо от того, кто раньше на таймлайне.
@@ -583,8 +583,12 @@ def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
         # Проверяется ВЕСЬ отрезок звучания, а не только его старт, плюс
         # якорь (у объекта звук начинается раньше слова, и попасть в
         # защищённое окно может любой из двух концов).
-        if _in_any_window(anchor if anchor is not None else t, reserved_windows) \
-                or _span_hits_window(c, reserved_windows):
+        # Удар заставки главы — вход в главу, он важнее провала кульминации
+        # (решение владельца 25.10: «эпичный вход в каждую главу»); от
+        # явной тишины [hush] он по-прежнему отступает.
+        windows = hush if c.get("hit") else reserved_windows
+        if _in_any_window(anchor if anchor is not None else t, windows) \
+                or _span_hits_window(c, windows):
             dropped.append(dict(c, reason="climax_window"))
             continue
         if any(abs(t - o) < min_gap for o in taken):

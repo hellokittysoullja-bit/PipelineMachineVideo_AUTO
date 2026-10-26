@@ -47,6 +47,36 @@ def roman(n):
     return _ROMAN[n - 1] if 1 <= n <= len(_ROMAN) else str(n)
 
 
+def smart_case(text, names=(), first_cap=True):
+    """Капс сценария -> строчные, как на экране (оформление 25.10).
+
+    В сценарии названия глав и плашки пишутся капсом («ЛАБОРАТОРИЯ В
+    ЛИДСЕ», «20–25 КГ»), на экране — строчными. Имя собственное остаётся с
+    заглавной, если такое имя (то же слово или его форма с общей основой от
+    5 букв) где-то в сценарии стоит с заглавной посреди предложения —
+    names (screen_text.script_names). Текст, где уже есть строчные буквы,
+    не трогается: его регистр задал автор."""
+    import re
+    t = text or ""
+    if any(ch.islower() for ch in t):
+        return t
+    stems = {n.lower()[:5] for n in names if len(n) >= 5}
+    exact = {n.lower() for n in names}
+
+    def fix(m):
+        w = m.group(0)
+        lw = w.lower()
+        if lw in exact or (len(lw) >= 5 and lw[:5] in stems):
+            return lw[:1].upper() + lw[1:]
+        return lw
+    out = re.sub(r"[A-Za-zА-Яа-яЁё]+", fix, t)
+    if first_cap:
+        m = re.search(r"[A-Za-zА-Яа-яЁё]", out)
+        if m:
+            out = out[:m.start()] + out[m.start()].upper() + out[m.start() + 1:]
+    return out
+
+
 def _font(path, size):
     from PIL import ImageFont
     return ImageFont.truetype(path, size)
