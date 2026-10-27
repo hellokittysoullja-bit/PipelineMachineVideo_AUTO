@@ -2269,7 +2269,7 @@ def object_asset_for(name, max_sec=None):
     return (path, dur or 0.0, cls)
 
 
-def polish_audio_cues(blocks, accepted, total_dur):
+def polish_audio_cues(blocks, accepted, total_dur, sub_starts=()):
     """Звук монтажа второго канала (polish_fx): подъём к удару заставки,
     удар под наезд, сердцебиение под хуком до входа в название."""
     import polish_fx
@@ -2280,6 +2280,11 @@ def polish_audio_cues(blocks, accepted, total_dur):
     out += polish_fx.riser_cues(hits, risers, durs, lambda p: sfx_cue_gain_db(p, "chapter"))
     out += polish_fx.punch_hit_cues(blocks, library_sounds("sfx", "reveal_hit") or [],
                                     lambda p: sfx_cue_gain_db(p, "chapter"))
+    cut_assets = [p for p in (SWOOSH_PATH, PLATE_TICK_PATH) if p and os.path.exists(p)]
+    out += polish_fx.hook_cut_swooshes(
+        blocks, sub_starts, cut_assets,
+        [SWOOSH_PEAK_SEC if p == SWOOSH_PATH else PLATE_SFX_PEAK_SEC for p in cut_assets],
+        lambda p: sfx_cue_gain_db(p, "chapter"))
     beats = library_sounds("sfx", "heartbeat") or []
     title = [c for c in hits if str(c.get("section") or "").upper().startswith("BLOCK 1")]
     if beats and title:
@@ -2391,7 +2396,7 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
                                  "gain_db": round(sw_gain + CARD_SWOOSH_GAIN_OFFSET_DB, 2),
                                  "gain_source": sw_src})
         if polish_fx_enabled():
-            accepted.extend(polish_audio_cues(blocks, accepted, total_dur))
+            accepted.extend(polish_audio_cues(blocks, accepted, total_dur, sub_starts))
     except Exception as e:
         print(f"  ВНИМАНИЕ: планировщик эффектов не отработал ({type(e).__name__}), "
               f"звук собирается как раньше.")
@@ -16969,12 +16974,7 @@ def clip_post_spec(b, card, clip_origin):
     if q:
         post["quote"] = dict(q, l0=round(float(q["q0"]) - clip_origin, 3),
                              l1=round(float(q["q1"]) - clip_origin, 3))
-    # Монтаж второго канала (polish_fx, POLISH_FX=1): кинорамка хука — на
-    # клипах хука и раскрытие на заставке названия; наезды на словах [punch].
-    if b.get("letterbox"):
-        post["letterbox"] = b["letterbox"]
-    if card and (card.get("style") == "title") and polish_fx_enabled():
-        post["letterbox"] = "open"
+    # Монтаж второго канала (polish_fx, POLISH_FX=1): наезды на словах [punch].
     punch = [round(float(t) - clip_origin, 3) for t in b.get("punch_times") or []
              if float(t) - clip_origin >= 0]
     if punch and not card:
@@ -17180,11 +17180,6 @@ def clip_post_filter(post, dur):
             SCREEN_TEXT_FONTS["year"], accent=TEXT_ACCENT, place_font_path=SCREEN_TEXT_FONTS["place"])
         fc = (fc + ";" if fc else "") + f"[{label}]{chain}[vcap]"
         label = "vcap"
-    if post.get("letterbox"):
-        import polish_fx
-        g = polish_fx.letterbox_filter(label, "vlb", dur, post["letterbox"], fps=FPS)
-        fc = (fc + ";" if fc else "") + g
-        label = "vlb"
     return fc, label
 
 
@@ -19493,7 +19488,11 @@ def main():
     # Каталоги попыток прерванного процесса — мусор: живых попыток при
     # старте нет, и в кэш такой файл не попадёт никогда.
     selection_attempt.sweep_orphans(os.path.join(TEMP_FOLDER, "staging"))
-    use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
+    # Папка с ЧАСТЬЮ слотов (001_ai, 002_ai под хук, остальное — сток, как
+    # предписывает Шаг 5) раньше выключала локальные кадры целиком: проверялся
+    # только слот 0, и если файла 001_* не было, 002_*/004_* игнорировались
+    # (найдено 27.10 на эп.06: сгенерированные кадры хука 2 и 4).
+    use_local = os.path.isdir(MEDIA_FOLDER) and bool(_local_photos())
     use_pexels = bool(PEXELS_API_KEY)
     # === PEXELS QUERIES === написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13,
     # Шаг 3), но до этой строки НИКОГДА не читался пайплайном — см. докстринг

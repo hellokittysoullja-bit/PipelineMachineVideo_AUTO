@@ -941,7 +941,8 @@ def main():
              "  3) python scripts/lumean_tts.py --create-template <VOICE_ID>")
         return 1
 
-    positional = [a for a in argv if not a.startswith("--")]
+    positional = [a for i, a in enumerate(argv)
+                  if not a.startswith("--") and not (i > 0 and argv[i - 1] == "--only-section")]
     force_length = "--force-length" in argv
     confirm_payg = "--confirm-payg" in argv
     video_dir = positional[0] if positional else os.getcwd()
@@ -981,8 +982,34 @@ def main():
     os.makedirs(temp_dir, exist_ok=True)
     episode_name = os.path.basename(os.path.normpath(video_dir))
 
+    # --only-section HOOK: переозвучить ТОЛЬКО эти секции (платный заказ на
+    # каждую), остальные берутся из прошлой генерации — файл секции и её
+    # alignment уже лежат в lumean_temp и в отчёте. Нужно, когда правится
+    # текст одной секции (хук) и платить за весь ролик заново незачем.
+    only = set()
+    if "--only-section" in argv:
+        i = argv.index("--only-section")
+        only = {a.strip() for a in argv[i + 1].split("|")} if i + 1 < len(argv) else set()
+    prev = {}
+    if only:
+        try:
+            with open(os.path.join(video_dir, "media_plan", "lumean_generation_report.json"),
+                      encoding="utf-8") as f:
+                prev = {r["section"]: r for r in json.load(f).get("sections", [])}
+        except (OSError, ValueError):
+            print("  --only-section: прошлого отчёта нет — заказываю все секции.")
+            only = set()
+
     section_results = []
     for idx, (name, text) in enumerate(section_texts):
+        old = prev.get(name)
+        if only and name not in only and old and old.get("audio_path") \
+                and os.path.exists(old["audio_path"]):
+            print(f"\n[{idx + 1}/{len(section_texts)}] {name}: из прошлой генерации (без заказа)")
+            old = dict(old)
+            old["alignment"] = [tuple(x) for x in (old.get("alignment") or [])] or None
+            section_results.append(old)
+            continue
         print(f"\n[{idx + 1}/{len(section_texts)}] {name}")
         section_results.append(
             process_section(api_key, template_id, temp_dir, idx, name, text,

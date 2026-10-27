@@ -48,8 +48,8 @@ def test_mark_blocks_with_flag(monkeypatch):
     blocks = [{"section": "HOOK", "words": 4, "sound_cues": [{"type": "punch", "word_pos": 2}]},
               {"section": "BLOCK 1: X", "words": 2, "sound_cues": []}]
     polish_fx.mark_blocks(blocks, [10.0, 14.0], [4.0, 2.0])
-    assert blocks[0]["letterbox"] == "full" and blocks[0]["punch_times"] == [12.0]
-    assert "letterbox" not in blocks[1] and "punch_times" not in blocks[1]
+    assert blocks[0]["punch_times"] == [12.0] and "letterbox" not in blocks[0]
+    assert "punch_times" not in blocks[1]
 
 
 def test_riser_ends_on_hit():
@@ -59,27 +59,25 @@ def test_riser_ends_on_hit():
     assert cues[0]["gain_db"] == pytest.approx(-1.0 + polish_fx.RISER_GAIN_OFFSET_DB)
 
 
-def _probe_frame(path, t, out):
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(t), "-i", path, "-frames:v", "1", out],
-                   check=True)
-    from PIL import Image
-    return Image.open(out).convert("L")
-
-
-@pytest.mark.skipif(subprocess.run(["which", "ffmpeg"], capture_output=True).returncode != 0,
-                    reason="нет ffmpeg")
-def test_letterbox_opens_and_punch_zooms(tmp_path):
-    src = str(tmp_path / "src.mp4")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
-                    "color=white:s=1920x1080:r=24:d=3", "-pix_fmt", "yuv420p", src], check=True)
-    g = polish_fx.letterbox_filter("0:v", "vlb", 3.0, "open")
-    out = str(tmp_path / "lb.mp4")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, "-filter_complex", g, "-map", "[vlb]",
-                    "-pix_fmt", "yuv420p", out], check=True)
-    import numpy as np
-    early = np.asarray(_probe_frame(out, 0.1, str(tmp_path / "a.png")))
-    late = np.asarray(_probe_frame(out, 2.9, str(tmp_path / "b.png")))
-    assert early[:100].mean() < 10 and early[-100:].mean() < 10      # полосы на месте
-    assert late[:100].mean() > 240 and late[-100:].mean() > 240      # полосы ушли
+def test_punch_filter_scales_and_crops_back():
     g = polish_fx.punch_filter("0:v", "vpn", [1.0])
     assert "eval=frame" in g and "crop=1920:1080" in g
+
+
+def test_hook_cut_swooshes_only_on_phrase_changes():
+    blocks = [{"section": "HOOK"}, {"section": "HOOK"}, {"section": "HOOK", "is_subcut": True},
+              {"section": "HOOK"}, {"section": "BLOCK 1: X"}]
+    cues = polish_fx.hook_cut_swooshes(blocks, [0.0, 3.0, 5.0, 7.0, 9.0], ["a", "b"], [0.36, 0.12],
+                                       lambda p: (-20.0, "measured"))
+    assert [c["block"] for c in cues] == [1, 3]                      # без первой, без под-кадра, без тела
+    assert cues[0]["time"] == pytest.approx(3.0 - polish_fx.HOOK_CUT_PEAK_BEFORE_SEC - 0.36)
+    assert cues[1]["asset"] == "b"                                    # файлы чередуются
+
+
+def test_local_media_for_partial_slots_is_not_ignored(tmp_path, monkeypatch):
+    """Папка media/ с кадрами только под слоты 2 и 4 раньше игнорировалась
+    целиком: use_local проверял слот 0."""
+    import inspect
+    import pipeline_smart
+    src = inspect.getsource(pipeline_smart.main)
+    assert "bool(_local_photos())" in src and "bool(local_photo(0))" not in src

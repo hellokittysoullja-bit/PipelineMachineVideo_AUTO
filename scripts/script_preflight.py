@@ -110,10 +110,12 @@ def _check_tags(sections, report):
 
 def _check_energetic(sections, report):
     where = [name for name, body in sections for _ in re.finditer(r"\[energetic\]", body)]
-    if len(where) != 1 or not where[0].startswith("HOOK"):
+    # Ноль — допустимо (27.10, владелец: [energetic] на голосе Ivo читался как
+    # крик, хук идёт ровным голосом). Больше одного или не в хуке — ошибка.
+    if len(where) > 1 or (where and not where[0].startswith("HOOK")):
         report.warn(f"[energetic] встречается {len(where)} раз"
                     + (f" (в {', '.join(sorted(set(w[:20] for w in where)))})" if where else "")
-                    + " — нужен ровно один, в начале хука (ЧАСТЬ 10)")
+                    + " — допустим один, и только в начале хука (ЧАСТЬ 10)")
 
 
 def _check_dashes(sections, report):
