@@ -32,8 +32,11 @@ PUNCH_LEAD_SEC = 0.06
 
 # Звук: подъём к удару заставки — тише самого удара; удар под наезд — тише
 # удара заставки; сердцебиение — фон под хуком, далеко под голосом.
-RISER_GAIN_OFFSET_DB = -6.0
-PUNCH_HIT_GAIN_OFFSET_DB = -9.0
+# Уровни сверены с готовым миксом 27.10: при -6/-9 подъём выходил около
+# -42 LUFS, удар около -45 (голос около -16) — на слух их не было вовсе.
+# Отсчёт — измеренное усиление уровня «chapter» (sfx_cue_gain_db).
+RISER_GAIN_OFFSET_DB = 4.0
+PUNCH_HIT_GAIN_OFFSET_DB = 3.0
 HEARTBEAT_GAIN_OFFSET_DB = -8.0
 HEARTBEAT_FADE_IN_SEC = 1.0
 HEARTBEAT_FADE_OUT_SEC = 1.5
