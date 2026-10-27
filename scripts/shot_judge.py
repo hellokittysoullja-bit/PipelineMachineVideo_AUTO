@@ -245,6 +245,9 @@ def cache_key(model, text, paths):
 VISION_CANARY_COLORS = (("red", (220, 20, 20)), ("blue", (20, 40, 220)))
 
 
+VISION_CHECK_MAX_TOKENS = 200
+
+
 def vision_check(gateway, model):
     """(True, "") если модель видит картинку, иначе (False, причина).
     Два цвета, чтобы угадывание одного слова не сходило за зрение."""
@@ -255,10 +258,20 @@ def vision_check(gateway, model):
         content = [{"type": "text", "text": "What single colour fills this image? Answer with one word."},
                    {"type": "image_url", "image_url": {
                        "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}]
-        try:
-            answer, _u, _p = gateway.chat(model, content, 20, 400, reasoning=False)
-        except Exception as e:  # noqa: BLE001
-            return False, f"проверка зрения не состоялась: {type(e).__name__}: {e}"[:300]
+        # Запас выхода 200, а не 20: шлюз время от времени игнорирует
+        # выключение рассуждения (27.10 — дважды подряд 20 токенов ушли в
+        # рассуждение, ответ пустой, и судья выключался на весь прогон).
+        # Один повтор — тот же вопрос через пару секунд проходил.
+        answer, err = None, None
+        for _attempt in range(2):
+            try:
+                answer, _u, _p = gateway.chat(model, content, VISION_CHECK_MAX_TOKENS, 400,
+                                              reasoning=False)
+                break
+            except Exception as e:  # noqa: BLE001
+                err = e
+        if answer is None:
+            return False, f"проверка зрения не состоялась: {type(err).__name__}: {err}"[:300]
         if word not in (answer or "").lower():
             return False, f"модель {model} не видит картинок (на {word} ответила {answer[:80]!r})"
     return True, ""
