@@ -37,8 +37,8 @@ PLAN_VERSION = 7
 # DeepSeek Flash — черновик с 8 неверными из 17; Gemini 3.7 Flash и Qwen 3.8 Max —
 # ноль неверных, но каждый находит треть сцен; Sonnet 5 — лучший, но ~143 тыс.
 # баланса за ролик. Два точных черновика объединяются, проверка вычёркивает.
-DRAFT_MODELS = ("ag/gemini-3.7-flash-low", "qwen/qwen3.8-max")
-CRITIC_MODELS = ("qwen/qwen3.8-max", "ag/gemini-3.7-flash-low")
+DRAFT_MODELS = ("gc/gemini-2.5-flash", "qwen/qwen3.8-max")
+CRITIC_MODELS = ("qwen/qwen3.8-max", "gc/gemini-2.5-flash")
 DEFAULT_MODEL = DRAFT_MODELS[0]
 CRITIC_MODEL = CRITIC_MODELS[0]
 MAX_TOKENS = 8000              # модели рассуждают до ответа: на 4000 Qwen 3.8 Max отдавал пустой ответ
@@ -466,6 +466,8 @@ def inline_cues(blocks):
     out = []
     for i, b in enumerate(blocks or []):
         for c in b.get("sound_cues") or []:
+            if c.get("type") not in ("amb", "music"):
+                continue   # [punch] и прочие пометки монтажа — не звуковые события
             typ = "music" if c.get("type") == "music" else "amb"
             out.append((i, typ, str(c.get("name", "")).strip().lower()))
     return out
@@ -653,8 +655,8 @@ if __name__ == "__main__":
 # длиной, а не посреди слова.
 # ======================================================================
 MUSIC_PLAN_VERSION = 4
-MUSIC_DRAFT_MODELS = ("qwen/qwen3.8-max", "ag/gemini-3.7-flash-low")
-MUSIC_CRITIC_MODELS = ("ag/gemini-3.7-flash-low", "qwen/qwen3.8-max")
+MUSIC_DRAFT_MODELS = ("qwen/qwen3.8-max", "gc/gemini-2.5-flash")
+MUSIC_CRITIC_MODELS = ("gc/gemini-2.5-flash", "qwen/qwen3.8-max")
 MUSIC_INTRO_TARGET_SEC = 36.0          # владелец 02.10: «чуть короче, на пару секунд» (было 40)
 MUSIC_INTRO_RANGE = (30.0, 42.0)
 MUSIC_STING_TARGET_SEC = 14.0          # было 16

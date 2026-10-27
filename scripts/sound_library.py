@@ -216,6 +216,7 @@ TITLE_BLOCK = {
     "reveal_riser": (),
     "reveal_hit": ("cymbal", "drum kit", "snare", "gun", "explosion", "kick", "bell", "808"),
     "typewriter": ("loop", "typing fast", "sequence"),
+    "heartbeat": ("monitor", "beep", "ecg", "song", "music", "remix", "dubstep"),
     # Предметный слой до 14.09 не имел блоклиста ни у одного вида — при том
     # что у всех тринадцати остальных он есть. Слова ниже взяты НЕ из головы,
     # а из того, что реально доехало до гейтов на живом пакете Sonniss.
@@ -548,6 +549,14 @@ LIBRARY_SPEC = {
             prompt="a deep low cinematic impact boom, single hit, documentary",
             extra_neg=("drum kit, cymbal crash", "explosion with debris"),
             min_sec=0.4, max_sec=4.5, keep=4),
+        "heartbeat": dict(
+            # подложка напряжения в хуке второго канала: ровный глухой стук,
+            # без музыки и без больничного писка монитора
+            queries=["heartbeat", "heartbeat slow", "heart beat deep", "heartbeat tension",
+                     "heartbeat cinematic", "human heartbeat"],
+            prompt="a slow deep human heartbeat, steady low thumps, no music",
+            extra_neg=("hospital heart monitor beeping", "drum kit playing a rhythm"),
+            min_sec=2.0, max_sec=60.0, keep=4),
         "typewriter": dict(
             queries=["typewriter key single", "typewriter keystroke", "mechanical keyboard single key",
                      "keyboard key press single click"],

@@ -2269,6 +2269,32 @@ def object_asset_for(name, max_sec=None):
     return (path, dur or 0.0, cls)
 
 
+def polish_audio_cues(blocks, accepted, total_dur):
+    """Звук монтажа второго канала (polish_fx): подъём к удару заставки,
+    удар под наезд, сердцебиение под хуком до входа в название."""
+    import polish_fx
+    out = []
+    hits = [c for c in accepted if c.get("hit") and c.get("gain_db") is not None]
+    risers = library_sounds("sfx", "reveal_riser") or []
+    durs = [media_duration_or_none(p) for p in risers]
+    out += polish_fx.riser_cues(hits, risers, durs, lambda p: sfx_cue_gain_db(p, "chapter"))
+    out += polish_fx.punch_hit_cues(blocks, library_sounds("sfx", "reveal_hit") or [],
+                                    lambda p: sfx_cue_gain_db(p, "chapter"))
+    beats = library_sounds("sfx", "heartbeat") or []
+    title = [c for c in hits if str(c.get("section") or "").upper().startswith("BLOCK 1")]
+    if beats and title:
+        gain, src = sfx_cue_gain_db(beats[0], "chapter")
+        cue = polish_fx.heartbeat_cue(beats[0], float(title[0]["time"]), gain, src,
+                                      os.path.join(TEMP_FOLDER, "hook_heartbeat.wav"))
+        if cue:
+            out.append(cue)
+    kinds = {}
+    for c in out:
+        kinds[c["kind"]] = kinds.get(c["kind"], 0) + 1
+    print(f"  Монтаж второго канала, звук: {kinds or 'нет'}")
+    return out
+
+
 def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, total_dur,
                      climax_times=(), plate_cues=(), out_path=None, voice_path=None):
     """Спланировать и наложить эффекты + записать аудит-трейл.
@@ -2364,6 +2390,8 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
                                  "asset": SWOOSH_PATH,
                                  "gain_db": round(sw_gain + CARD_SWOOSH_GAIN_OFFSET_DB, 2),
                                  "gain_source": sw_src})
+        if polish_fx_enabled():
+            accepted.extend(polish_audio_cues(blocks, accepted, total_dur))
     except Exception as e:
         print(f"  ВНИМАНИЕ: планировщик эффектов не отработал ({type(e).__name__}), "
               f"звук собирается как раньше.")
@@ -16829,6 +16857,10 @@ def plan_transitions(sections, blocks=None, xfade_dur=XFADE_DUR):
             # переходов границ не трогается: без заставок план байт-в-байт прежний.
             import chapter_card
             transition, this_dur = "fade", chapter_card.style_of(b_cur["chapter_card"])["fade_in"]
+        elif b_cur is not None and b_cur.get("is_climax") and polish_fx_enabled():
+            # Монтаж второго канала: перед кульминацией — уход в чёрное.
+            import polish_fx
+            transition, this_dur = "fadeblack", polish_fx.CLIMAX_DIP_FRAMES / FPS
         elif is_boundary:
             candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
             transition = pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1)
@@ -16869,6 +16901,9 @@ def chapter_card_recipe_signature():
                + inspect.getsource(clip_post_filter) + inspect.getsource(finalize_clip_post)
                + inspect.getsource(source_caption_lines) + inspect.getsource(screen_case)
                + repr(sorted(SCREEN_TEXT_FONTS.items())))
+        if polish_fx_enabled():
+            import polish_fx
+            src += inspect.getsource(polish_fx)
     except Exception:
         src = "chapter_card:unavailable"
     return "card:" + hashlib.md5(src.encode("utf-8")).hexdigest()[:10]
@@ -16934,7 +16969,22 @@ def clip_post_spec(b, card, clip_origin):
     if q:
         post["quote"] = dict(q, l0=round(float(q["q0"]) - clip_origin, 3),
                              l1=round(float(q["q1"]) - clip_origin, 3))
+    # Монтаж второго канала (polish_fx, POLISH_FX=1): кинорамка хука — на
+    # клипах хука и раскрытие на заставке названия; наезды на словах [punch].
+    if b.get("letterbox"):
+        post["letterbox"] = b["letterbox"]
+    if card and (card.get("style") == "title") and polish_fx_enabled():
+        post["letterbox"] = "open"
+    punch = [round(float(t) - clip_origin, 3) for t in b.get("punch_times") or []
+             if float(t) - clip_origin >= 0]
+    if punch and not card:
+        post["punch"] = punch
     return post or None
+
+
+def polish_fx_enabled():
+    import polish_fx
+    return polish_fx.enabled()
 
 
 SOURCE_CAPTION_MIN_CLIP_SEC = 2.8
@@ -17077,6 +17127,11 @@ def clip_post_filter(post, dur):
     import screen_text
     fc, label = "", "0:v"
     card = post.get("card")
+    if post.get("punch") and not card:
+        import polish_fx
+        g = polish_fx.punch_filter(label, "vpn", post["punch"])
+        if g:
+            fc, label = g, "vpn"
     if card and FONT_PATH:
         m = re.match(r"BLOCK\s+(\d+)", str(card.get("section") or ""), re.I)
         fc = chapter_card.card_filter(
@@ -17125,6 +17180,11 @@ def clip_post_filter(post, dur):
             SCREEN_TEXT_FONTS["year"], accent=TEXT_ACCENT, place_font_path=SCREEN_TEXT_FONTS["place"])
         fc = (fc + ";" if fc else "") + f"[{label}]{chain}[vcap]"
         label = "vcap"
+    if post.get("letterbox"):
+        import polish_fx
+        g = polish_fx.letterbox_filter(label, "vlb", dur, post["letterbox"], fps=FPS)
+        fc = (fc + ";" if fc else "") + g
+        label = "vlb"
     return fc, label
 
 
@@ -19291,6 +19351,8 @@ def main():
     visual_starts = hook_visual_starts(blocks, durs)
     seen_starts = first_visible_starts(blocks, durs)
     mark_screen_text(blocks, seen_starts, total, bool(phrase_locked))
+    import polish_fx
+    polish_fx.mark_blocks(blocks, sub_starts, real_weights if phrase_locked else None)
 
     # media_plan/phrase_timeline.json — ПРОВЕРЯЕМЫЙ аудит привязки кадра к
     # фразе. Пишется ВСЕГДА (даже когда привязки нет — тогда честно

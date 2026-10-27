@@ -50,7 +50,7 @@ STAT_MAX_WIDTH = 1100            # колонка плашки text_style.stat_b
 # то есть заставка или плашка на ней занимает её ЦЕЛИКОМ (тест держит равенство).
 SUBCUT_MIN_SOURCE_DUR = 8.0
 GAP_NEAR_SEC = 15.0            # подпись в пределах стольких секунд от порога 40 с — «может пропуститься»
-PIPELINE_TAG_RE = re.compile(r"^(stat:.*|climax|sfx:.*|hush|shot:.*|amb:.*|music:.*)$", re.S)
+PIPELINE_TAG_RE = re.compile(r"^(stat:.*|climax|sfx:.*|hush|shot:.*|amb:.*|music:.*|punch)$", re.S)
 QUOTE_FONT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           "assets", "fonts", "Montserrat-MediumItalic.ttf")
 
@@ -105,7 +105,7 @@ def _check_tags(sections, report):
             else:
                 report.error(f"{name[:28]}: неизвестный тег {tag} — будет вырезан без паузы",
                              hint="разрешены: " + ", ".join(sorted(known))
-                             + ", [stat:], [climax], [sfx:], [hush], [shot:], [amb:], [music:]")
+                             + ", [stat:], [climax], [sfx:], [hush], [shot:], [amb:], [music:], [punch]")
 
 
 def _check_energetic(sections, report):

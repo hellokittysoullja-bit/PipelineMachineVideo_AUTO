@@ -559,7 +559,11 @@ def parse_answer(text):
 # не решает. Модели — по порядку: следующая спрашивается, только если
 # предыдущая не дала годного паспорта.
 AUTO_PREFIX = "auto:"
-AUTO_MODELS = ("ag/gemini-3.1-pro-low", "ag/gemini-3.6-flash-high")
+# 27.10: на шлюзе ag/gemini-3.1-pro-low отвечает 404 (model_not_found), а
+# 3.6 Flash снята из каталога — паспорт не составлялся вовсе, отбор шёл без
+# мира. Первой теперь Claude Sonnet 5 (живой ответ 27.10); замера на шести
+# ручных паспортах у неё нет, паспорт стоит проверить глазами.
+AUTO_MODELS = ("cc/claude-sonnet-5", "ag/gemini-3.1-pro-low", "gc/gemini-2.5-flash")
 AUTO_MODEL = AUTO_MODELS[0]
 
 

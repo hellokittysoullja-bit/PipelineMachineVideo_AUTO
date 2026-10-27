@@ -40,7 +40,7 @@ PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
 # 1.000 -> 0.889 при пороге 0.9, и PHRASE LOCK выключился на ВЕСЬ эпизод:
 # кадры поехали по оценочным длительностям вместо реальных онсетов речи.
 PIPELINE_ONLY_TAG_RE = re.compile(r'\[(?:stat:[^\]]*|climax|sfx:[^\]]*|hush|shot:[^\]]*'
-                                  r'|amb:[^\]]*|music:[^\]]*)\]',
+                                  r'|amb:[^\]]*|music:[^\]]*|punch)\]',
                                   re.IGNORECASE)
 
 
@@ -160,6 +160,10 @@ def parse_blocks(path):
     # ~20 с (море, конница, колокола) и средневековая музыка. Ставит автор
     # или звуковой режиссёр (scripts/sound_director.py). Разбор — тот же,
     # что у [sfx:]: блок не режет, позиция хранится в словах.
+    # [punch] — акцентный наезд на следующем слове (монтаж второго канала,
+    # polish_fx). Разбор тот же, что у звуковых событий: блок не режет,
+    # позиция хранится в словах и при нарезке уходит своему куску.
+    content = re.sub(r'\[punch\]', "\x06SND:punch:hit\x06", content, flags=re.IGNORECASE)
     content = re.sub(r'\[(amb|music):(.*?)\]',
                      lambda m: f"\x06SND:{m.group(1).lower()}:{m.group(2)}\x06", content,
                      flags=re.IGNORECASE)
