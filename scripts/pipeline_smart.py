@@ -3008,6 +3008,19 @@ def plan_episode_music(video_dir, blocks, sub_starts, total, gw, author_music=No
         print("  ВНИМАНИЕ: библиотеки музыки на диске нет — python scripts/music_library.py restore")
         return [], []
     mplan = None
+    # Авторский план музыки (media_plan/music_plan_manual.json) — как тег
+    # [music:] для врезок, но на весь план: вступление, финал, врезки и
+    # подложки глав выбраны человеком (или сессией по карточкам). Модель в
+    # этом случае не спрашивается, платных вызовов нет.
+    try:
+        with open(os.path.join(video_dir, "media_plan", "music_plan_manual.json"), encoding="utf-8") as _mf:
+            _manual = json.load(_mf)
+        if isinstance(_manual, dict) and _manual.get("beds") is not None:
+            mplan = dict(_manual, version=sound_director.MUSIC_PLAN_VERSION, complete=True)
+            print("  музыка: авторский план music_plan_manual.json (модель не спрашивается)")
+            gw = None
+    except (OSError, ValueError):
+        pass
     if gw is not None:
         try:
             mplan = sound_director.plan_music(video_dir, blocks, sub_starts, gw, tracks)
