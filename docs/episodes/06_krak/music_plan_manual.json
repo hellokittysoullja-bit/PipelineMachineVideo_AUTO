@@ -1,0 +1,50 @@
+{
+ "intro": "mixkit_605",
+ "outro": "mixkit_601",
+ "stings": [
+  {
+   "section": "BLOCK 4: ПЯТЬ НЕДЕЛЬ",
+   "id": "mixkit_602"
+  },
+  {
+   "section": "BLOCK 5: ПИСЬМО",
+   "id": "mixkit_576"
+  }
+ ],
+ "beds": [
+  {
+   "section": "BLOCK 1: ЗАМОК, КОТОРЫЙ НЕ БРАЛИ",
+   "id": "mixkit_580"
+  },
+  {
+   "section": "BLOCK 2: ЧЕЛОВЕК С БЕЛЬМОМ",
+   "id": "mixkit_538"
+  },
+  {
+   "section": "BLOCK 3: ТРИ ГОДА УДУШЬЯ",
+   "id": "mixkit_188"
+  },
+  {
+   "section": "BLOCK 4: ПЯТЬ НЕДЕЛЬ",
+   "id": "mixkit_614"
+  },
+  {
+   "section": "BLOCK 5: ПИСЬМО",
+   "id": "mixkit_612"
+  },
+  {
+   "section": "BLOCK 6: ВОСЬМОЕ АПРЕЛЯ",
+   "id": "mixkit_310"
+  }
+ ],
+ "chapters": [
+  "BLOCK 1: ЗАМОК, КОТОРЫЙ НЕ БРАЛИ",
+  "BLOCK 2: ЧЕЛОВЕК С БЕЛЬМОМ",
+  "BLOCK 3: ТРИ ГОДА УДУШЬЯ",
+  "BLOCK 4: ПЯТЬ НЕДЕЛЬ",
+  "BLOCK 5: ПИСЬМО",
+  "BLOCK 6: ВОСЬМОЕ АПРЕЛЯ",
+  "FINAL"
+ ],
+ "note": "авторский план: сессия по карточкам библиотеки"
+}
